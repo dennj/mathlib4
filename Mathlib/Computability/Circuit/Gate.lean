@@ -62,10 +62,6 @@ structure GateHom (G H : Nat → Type) : Type where
 
 namespace GateHom
 
-theorem map_mk {G H : Nat → Type} (f : ∀ n : Nat, G n → H n) (n : Nat) (g : G n) :
-    (GateHom.mk f).map n g = f n g :=
-  rfl
-
 /-- Identity gate homomorphism. -/
 def id (G : Nat → Type) : GateHom G G :=
   ⟨fun _ g => g⟩
