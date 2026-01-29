@@ -19,6 +19,28 @@ semantics, together with standard bases used in circuit complexity (`AC0`, `ACC0
 The key design choice is to keep **syntax** (gate labels) separate from **semantics**
 (an evaluation function), so that later developments can swap representations without changing
 core APIs.
+
+## Main definitions
+
+* `GateEval G`: typeclass providing Boolean semantics for a gate family `G : Nat → Type`
+* `GateHom G H`: arity-preserving maps between gate families (purely syntactic)
+* `countTrue x`: number of `true` values in a Boolean vector `x : Fin n → Bool`
+* `AC0Gate`: unbounded fan-in `AND`, `OR`, and unary `NOT`
+* `ACC0Gate m`: `AC0` extended with `MOD m` gates
+* `TC0Gate`: `AC0` extended with threshold gates
+
+## Implementation notes
+
+Gate families are indexed by arity (`G : Nat → Type`) rather than being a single type with an
+arity field. This design enables the type system to enforce arity constraints and allows
+clean composition via `GateHom`.
+
+`GateHom` satisfies the category laws (`comp_id`, `id_comp`, `comp_assoc`), so gate families
+form a category. A `Category` instance can be defined by importing `CategoryTheory.Category.Basic`.
+
+## Tags
+
+circuit, Boolean, gate, AC0, ACC0, TC0, complexity
 -/
 
 @[expose] public section
@@ -40,7 +62,7 @@ structure GateHom (G H : Nat → Type) : Type where
 
 namespace GateHom
 
-@[simp] theorem map_mk {G H : Nat → Type} (f : ∀ n : Nat, G n → H n) (n : Nat) (g : G n) :
+theorem map_mk {G H : Nat → Type} (f : ∀ n : Nat, G n → H n) (n : Nat) (g : G n) :
     (GateHom.mk f).map n g = f n g :=
   rfl
 
@@ -60,6 +82,16 @@ def comp {G H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) : GateHom G 
     (comp g f).map n x = g.map n (f.map n x) :=
   rfl
 
+@[simp] theorem comp_id {G H : Nat → Type} (f : GateHom G H) : comp f (id G) = f :=
+  rfl
+
+@[simp] theorem id_comp {G H : Nat → Type} (f : GateHom G H) : comp (id H) f = f :=
+  rfl
+
+theorem comp_assoc {G H K L : Nat → Type} (h : GateHom K L) (g : GateHom H K) (f : GateHom G H) :
+    comp (comp h g) f = comp h (comp g f) :=
+  rfl
+
 end GateHom
 
 /-- Number of `true` inputs in a Boolean vector. -/
@@ -70,125 +102,46 @@ def countTrue {n : Nat} (x : Fin n → Bool) : Nat :=
     countTrue x = (Finset.univ.filter fun i : Fin n => x i = true).card :=
   rfl
 
-theorem countTrue_le {n : Nat} (x : Fin n → Bool) : countTrue x ≤ n := by
-  simpa [countTrue] using card_finset_fin_le (Finset.univ.filter fun i : Fin n => x i = true)
+theorem countTrue_le {n : Nat} (x : Fin n → Bool) : countTrue x ≤ n :=
+  card_finset_fin_le _
 
 theorem countTrue_snoc {n : Nat} (x : Fin n → Bool) (b : Bool) :
     countTrue (Fin.snoc x b) = countTrue x + (if b then 1 else 0) := by
   classical
-  -- Split `Fin (n+1)` into the prefix `Fin.castSucc` and the last element `Fin.last n`.
-  let s0 : Finset (Fin (n + 1)) :=
-    Finset.image Fin.castSucc (Finset.univ.filter fun i : Fin n => x i = true)
-  let s1 : Finset (Fin (n + 1)) :=
-    if b then {Fin.last n} else ∅
-  have hs :
-      (Finset.univ.filter fun i : Fin (n + 1) =>
-          Fin.snoc (α := fun _ : Fin (n + 1) => Bool) x b i = true) =
-        s0 ∪ s1 := by
+  simp only [countTrue]
+  -- The key is to split Fin (n+1) into {i.castSucc | i : Fin n} ∪ {last n}
+  have himage : Finset.univ.filter (fun i : Fin (n + 1) =>
+        Fin.snoc (α := fun _ => Bool) x b i = true) =
+      (Finset.univ.filter (fun i : Fin n => x i = true)).image Fin.castSucc ∪
+        (if b then {Fin.last n} else ∅) := by
     ext i
+    simp only [Finset.mem_filter, Finset.mem_univ, true_and, Finset.mem_union, Finset.mem_image]
     cases i using Fin.lastCases with
-    | cast j0 =>
-        constructor
-        · intro hj
-          refine Finset.mem_union.2 (Or.inl ?_)
-          refine Finset.mem_image.2 ?_
-          refine ⟨j0, ?_, rfl⟩
-          have : x j0 = true := by
-            simpa using hj
-          simp [this]
-        · intro hi
-          rcases Finset.mem_union.1 hi with hi | hi
-          · rcases Finset.mem_image.1 hi with ⟨j, hj, hjEq⟩
-            have hj' : j = j0 := by
-              exact Fin.castSucc_injective n hjEq
-            have : x j0 = true := by
-              have : x j = true := by
-                simpa using (Finset.mem_filter.1 hj).2
-              simpa [hj'] using this
-            simp [this]
-          · cases hb : b with
-            | false =>
-                have : False := by
-                  have hiff : ((Fin.castSucc j0 : Fin (n + 1)) ∈ s1) ↔ False := by
-                    simp [s1, hb]
-                  exact hiff.1 hi
-                exact this.elim
-            | true =>
-                -- `Fin.castSucc j ∉ {Fin.last n}`.
-                have hiEq : (Fin.castSucc j0 : Fin (n + 1)) = Fin.last n := by
-                  have hiff :
-                      ((Fin.castSucc j0 : Fin (n + 1)) ∈ s1) ↔
-                        (Fin.castSucc j0 : Fin (n + 1)) = Fin.last n := by
-                    simp [s1, hb]
-                  exact hiff.1 hi
-                have := congrArg Fin.val hiEq
-                exact (Nat.ne_of_lt j0.2) (by simpa using this) |>.elim
     | last =>
-        constructor
-        · intro hl
-          have hb : b = true := by
-            simpa using hl
-          subst hb
-          refine Finset.mem_union.2 (Or.inr ?_)
-          simp [s1]
-        · intro hi
-          rcases Finset.mem_union.1 hi with hi | hi
-          · rcases Finset.mem_image.1 hi with ⟨j, hj, hjEq⟩
-            have := congrArg Fin.val hjEq
-            exact (Nat.ne_of_lt j.2) (by simpa using this) |>.elim
-          · cases hb : b with
-            | false =>
-                have : False := by
-                  have hiff : (Fin.last n ∈ s1) ↔ False := by
-                    simp [s1, hb]
-                  exact hiff.1 hi
-                exact this.elim
-            | true =>
-                -- `Fin.snoc x true (Fin.last n) = true`.
-                simp
-  have hs0_card : s0.card = (Finset.univ.filter fun i : Fin n => x i = true).card := by
-    -- `Fin.castSucc` is injective.
-    have hinj : Function.Injective (Fin.castSucc : Fin n → Fin (n + 1)) :=
-      Fin.castSucc_injective n
-    simpa [s0] using (Finset.card_image_of_injective _ hinj)
-  have hs1_card : s1.card = (if b then 1 else 0) := by
-    cases hb : b <;> simp [s1, hb]
-  have hdisj : Disjoint s0 s1 := by
-    cases hb : b with
-    | false =>
-        simp [s1, hb]
-    | true =>
-        refine Finset.disjoint_left.2 ?_
-        intro i hi0 hi1
-        have hi : i = Fin.last n := by
-          have hi' : i ∈ ({Fin.last n} : Finset (Fin (n + 1))) := by
-            simpa [s1, hb] using hi1
-          simpa using (Finset.mem_singleton.1 hi')
-        subst hi
-        rcases Finset.mem_image.1 hi0 with ⟨j, hj, hjEq⟩
-        have := congrArg Fin.val hjEq
-        exact (Nat.ne_of_lt j.2) (by simpa using this)
-  have hcard_union : (s0 ∪ s1).card = s0.card + s1.card := by
-    have hinter : (s0 ∩ s1) = (∅ : Finset (Fin (n + 1))) := by
-      ext i
+      simp only [Fin.snoc_last]
       constructor
-      · intro hi
-        rcases Finset.mem_inter.1 hi with ⟨hi0, hi1⟩
-        exact ((Finset.disjoint_left.1 hdisj) hi0 hi1).elim
-      · intro hi
-        simp at hi
-    have h := Finset.card_union_add_card_inter s0 s1
-    simpa [hinter] using h
-  calc
-    countTrue (Fin.snoc x b)
-        =
-          (Finset.univ.filter fun i : Fin (n + 1) =>
-              Fin.snoc (α := fun _ : Fin (n + 1) => Bool) x b i = true).card := rfl
-    _ = (s0 ∪ s1).card := by
-        simp [hs]
-    _ = s0.card + s1.card := hcard_union
-    _ = countTrue x + (if b then 1 else 0) := by
-        simp [countTrue, s0, s1, hs0_card, hs1_card]
+      · intro hb; simp [hb]
+      · intro h
+        rcases h with ⟨j, _, hj⟩ | h
+        · exact (Fin.castSucc_ne_last j hj).elim
+        · cases hb : b <;> simp_all
+    | cast j =>
+      simp only [Fin.snoc_castSucc]
+      constructor
+      · intro hxj
+        left; exact ⟨j, hxj, rfl⟩
+      · intro h
+        rcases h with ⟨k, hk, hkj⟩ | h
+        · have : k = j := Fin.castSucc_injective n hkj
+          rwa [← this]
+        · cases hb : b <;> simp_all [Fin.castSucc_ne_last]
+  have hdisj : Disjoint
+      ((Finset.univ.filter (fun i : Fin n => x i = true)).image Fin.castSucc)
+      (if b then {Fin.last n} else ∅) := by
+    cases b <;> simp [Finset.disjoint_singleton_right, Finset.mem_image, Fin.castSucc_ne_last]
+  rw [himage, Finset.card_union_of_disjoint hdisj,
+    Finset.card_image_of_injective _ (Fin.castSucc_injective n)]
+  cases b <;> simp
 
 /-! ## Standard gate bases -/
 
@@ -308,11 +261,13 @@ def toTC0Gate : GateHom AC0Gate TC0Gate :=
   rfl
 
 @[simp] theorem eval_toACC0Gate (m n : Nat) (g : AC0Gate n) (x : Fin n → Bool) :
-    GateEval.eval (G := ACC0Gate m) ((toACC0Gate m).map n g) x = GateEval.eval (G := AC0Gate) g x :=
+    GateEval.eval (G := ACC0Gate m) ((toACC0Gate m).map n g) x =
+      GateEval.eval (G := AC0Gate) g x :=
   rfl
 
 @[simp] theorem eval_toTC0Gate (n : Nat) (g : AC0Gate n) (x : Fin n → Bool) :
-    GateEval.eval (G := TC0Gate) (toTC0Gate.map n g) x = GateEval.eval (G := AC0Gate) g x :=
+    GateEval.eval (G := TC0Gate) (toTC0Gate.map n g) x =
+      GateEval.eval (G := AC0Gate) g x :=
   rfl
 
 end AC0Gate

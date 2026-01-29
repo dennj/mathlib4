@@ -15,6 +15,25 @@ This file defines a basic notion of Boolean circuits as *syntax trees* over an a
 
 The representation deliberately does not include explicit sharing (DAG circuits). It is intended as
 a minimal foundation for later definitions (size/depth measures, families, and non-uniform classes).
+
+## Main definitions
+
+* `Circuit G n`: Boolean circuit over gate family `G` with `n` input wires
+* `Circuit.eval`: evaluate a circuit on an input assignment
+* `Circuit.mapGate`: transform gate labels via a `GateHom`
+* `Circuit.mapInputs`: rename/reindex circuit inputs
+* `Circuit.subst`: substitute each input wire by a circuit
+
+## Main theorems
+
+* `Circuit.eval_mapGate`: evaluation commutes with gate mapping (given semantic compatibility)
+* `Circuit.eval_mapInputs`: evaluation commutes with input renaming
+* `Circuit.eval_subst`: evaluation commutes with substitution
+* `Circuit.mapGate_comp`, `Circuit.subst_comp`: composition laws
+
+## Tags
+
+circuit, Boolean, syntax tree, evaluation
 -/
 
 @[expose] public section
@@ -178,10 +197,7 @@ theorem mapGate_id (c : Circuit G n) :
   induction c with
   | input i => rfl
   | const b => rfl
-  | gate g f ih =>
-      simp only [mapGate_gate, GateHom.id_map, gate.injEq, heq_eq_eq, true_and]
-      funext i
-      simpa using ih i
+  | gate g f ih => simp [ih]
 
 theorem mapGate_comp {H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) (c : Circuit G n) :
     mapGate (G := G) (n := n) (GateHom.comp g f) c =
@@ -189,10 +205,7 @@ theorem mapGate_comp {H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) (c
   induction c with
   | input i => rfl
   | const b => rfl
-  | gate g₀ f₀ ih =>
-      simp only [mapGate_gate, GateHom.comp_map, gate.injEq, heq_eq_eq, true_and]
-      funext i
-      simpa using ih i
+  | gate g₀ f₀ ih => simp [ih]
 
 end Circuit
 
