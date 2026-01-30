@@ -324,15 +324,8 @@ theorem sum_eq_zero_iff_eq_coeff (hζ : IsPrimitiveRoot ζ p) (α : Fin p → �
   -- Reverse direction: equal coefficients implies vanishing
   · intro heq
     have hprime : Nat.Prime p := Fact.out
-    have hone_lt : 1 < p := hprime.one_lt
-    have hconst : ∀ i : Fin p, α i = α 0 := fun i => heq i 0
-    calc ∑ i : Fin p, (α i : K) * ζ ^ i.val
-        = ∑ i : Fin p, (α 0 : K) * ζ ^ i.val := by congr 1; ext i; rw [hconst i]
-      _ = (α 0 : K) * ∑ i : Fin p, ζ ^ i.val := by rw [Finset.mul_sum]
-      _ = (α 0 : K) * ∑ i ∈ Finset.range p, ζ ^ i := by
-          congr 1; rw [← Fin.sum_univ_eq_sum_range (fun i => ζ ^ i) p]
-      _ = (α 0 : K) * 0 := by rw [hζ.geom_sum_eq_zero hone_lt]
-      _ = 0 := mul_zero _
+    simp_rw [← heq 0]
+    simp [← Finset.mul_sum, Fin.sum_univ_eq_sum_range, hζ.geom_sum_eq_zero hprime.one_lt]
 
 /-- Variant of `sum_eq_zero_iff_eq_coeff` with integer coefficients. -/
 theorem sum_eq_zero_iff_eq_coeff' (hζ : IsPrimitiveRoot ζ p) (α : Fin p → ℤ) :
