@@ -81,7 +81,7 @@ def comp {G H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) : GateHom G 
 @[simp] theorem comp_id {G H : Nat → Type} (f : GateHom G H) : comp f (id G) = f :=
   rfl
 
-@[simp] theorem id_comp {G H : Nat → Type} (f : GateHom G H) : comp (id H) f = f :=
+@[simp] theorem comp_id' {G H : Nat → Type} (f : GateHom G H) : comp (id H) f = f :=
   rfl
 
 theorem comp_assoc {G H K L : Nat → Type} (h : GateHom K L) (g : GateHom H K) (f : GateHom G H) :
