@@ -247,14 +247,10 @@ theorem sum_eq_zero_iff_eq_coeff (hζ : IsPrimitiveRoot ζ p) (α : Fin p → �
     -- Use a total function on ℕ to avoid dependent Fin casts.
     let αNat : ℕ → ℚ := fun i => if hi : i < p then α ⟨i, hi⟩ else 0
     -- Rewrite the sum over `Fin p` as a sum over `Finset.range p`.
+    have hαNat_val : ∀ i : Fin p, αNat i.val = α i := fun ⟨_, hi⟩ => dif_pos hi
     have hsum_range : ∑ i ∈ Finset.range p, (αNat i : K) * ζ ^ i = 0 := by
-      let f : ℕ → K := fun i => (αNat i : K) * ζ ^ i
-      have hαNat_val : ∀ i : Fin p, αNat i.val = α i := fun i => by
-        cases i with | mk v hv => simp only [αNat, dif_pos hv]
-      have hsum' : ∑ i : Fin p, f i.val = 0 := by simpa [f, hαNat_val] using hsum
-      have hEq : ∑ i : Fin p, f i.val = ∑ i ∈ Finset.range p, f i := by
-        simpa using Fin.sum_univ_eq_sum_range f p
-      simpa [hEq, f] using hsum'
+      have := Fin.sum_univ_eq_sum_range (fun i => (αNat i : K) * ζ ^ i) p
+      simp only [hαNat_val] at this; rw [← this]; exact hsum
     -- Split off the last term at index `n = p - 1`.
     set n : ℕ := p.pred with hn
     have hn_succ : n.succ = p := by subst n; exact Nat.succ_pred_eq_of_pos hpos
@@ -301,45 +297,30 @@ theorem sum_eq_zero_iff_eq_coeff (hζ : IsPrimitiveRoot ζ p) (α : Fin p → �
     have hcycl_natDegree : (Polynomial.cyclotomic p ℚ).natDegree = n := by
       subst n
       simp [Polynomial.natDegree_cyclotomic, Nat.totient_prime hprime]
-    have hq_lt : q.natDegree < (Polynomial.cyclotomic p ℚ).natDegree := by
-      have h1 : q.natDegree ≤ n - 1 := hq_natDegree_le
-      have h2 : q.natDegree < n := lt_of_le_of_lt h1 (Nat.sub_lt hn_pos Nat.one_pos)
-      simpa [hcycl_natDegree] using h2
     -- Hence `q = 0`.
-    have hq0 : q = 0 :=
-      Polynomial.eq_zero_of_dvd_of_natDegree_lt (p := Polynomial.cyclotomic p ℚ) (q := q) hdvd hq_lt
+    have hq0 : q = 0 := Polynomial.eq_zero_of_dvd_of_natDegree_lt hdvd <| by
+      rw [hcycl_natDegree]
+      exact lt_of_le_of_lt hq_natDegree_le (Nat.sub_lt hn_pos Nat.one_pos)
     -- Extract coefficient equalities: for every `i < n`, `αNat i = αNat n`.
     have hαNat_eq (i : ℕ) (hi : i < n) : αNat i = αNat n := by
-      have hi_mem : i ∈ Finset.range n := Finset.mem_range.mpr hi
       have hcoeff : q.coeff i = αNat i - αNat n := by
         simp only [q, Polynomial.finset_sum_coeff, Polynomial.coeff_monomial]
-        rw [Finset.sum_eq_single i]
-        · simp only [↓reduceIte]
-        · intro j _ hji
-          simp only [hji, ↓reduceIte]
-        · intro hi'
-          exact (hi' hi_mem).elim
-      have hcoeff0 : q.coeff i = 0 := by simp [hq0]
-      have hsub0 : αNat i - αNat n = 0 := by simpa [hcoeff] using hcoeff0
-      exact sub_eq_zero.mp hsub0
-    -- Translate back to `Fin p`.
-    let last : Fin p := ⟨n, by subst n; exact Nat.pred_lt hne0⟩
-    have hα_last (i : Fin p) : α i = α last := by
-      have hi_le : i.val ≤ n := by
-        have : i.val < n.succ := lt_of_lt_of_eq i.isLt hn_succ.symm
-        exact Nat.lt_succ_iff.mp this
-      rcases lt_or_eq_of_le hi_le with hi_lt | hi_eq
-      · have hαi : αNat i.val = α i := by
-          have : (⟨i.val, i.isLt⟩ : Fin p) = i := by ext; rfl
-          simp only [αNat, dif_pos i.isLt, this]
-        have hαlast : αNat n = α last := by
-          have hnlt : n < p := lt_of_lt_of_eq (Nat.lt_succ_self n) hn_succ
-          simp only [αNat, dif_pos hnlt, last]
-        exact (hαi.symm.trans (hαNat_eq i.val hi_lt)).trans hαlast
-      · have : i = last := Fin.ext (by simp only [last, hi_eq])
-        simp only [this]
-    intro i j
-    exact (hα_last i).trans (hα_last j).symm
+        rw [Finset.sum_eq_single i (fun j _ hji => by simp [hji])
+            (fun h => (h (Finset.mem_range.mpr hi)).elim)]
+        simp
+      simp only [hq0, Polynomial.coeff_zero] at hcoeff
+      linarith
+    -- Translate back to `Fin p`: all coefficients equal α at position n.
+    have hlast : n < p := by simp only [hn_succ.symm, Nat.lt_succ_self]
+    suffices ∀ i : Fin p, α i = αNat n by exact fun i j => (this i).trans (this j).symm
+    intro i
+    have hi_le : i.val ≤ n := by
+      have : i.val < n.succ := hn_succ.symm ▸ i.isLt
+      exact Nat.lt_succ_iff.mp this
+    rcases hi_le.lt_or_eq with hi_lt | hi_eq
+    · exact (hαNat_val i).symm.trans (hαNat_eq i.val hi_lt)
+    · have : i = ⟨n, hlast⟩ := Fin.ext hi_eq
+      rw [this, ← hαNat_val ⟨n, hlast⟩]
   -- Reverse direction: equal coefficients implies vanishing
   · intro heq
     have hprime : Nat.Prime p := Fact.out
