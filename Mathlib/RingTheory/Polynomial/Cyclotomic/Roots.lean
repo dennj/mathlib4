@@ -234,7 +234,7 @@ a ℚ-linear combination `∑ αᵢ ζ^i` vanishes if and only if all coefficien
 This characterizes exactly when such sums vanish, and follows from the irreducibility
 of the cyclotomic polynomial. -/
 theorem sum_eq_zero_iff_eq_coeff (hζ : IsPrimitiveRoot ζ p) (α : Fin p → ℚ) :
-    ∑ i : Fin p, (α i : K) * ζ ^ i.val = 0 ↔ ∀ i j : Fin p, α i = α j := by
+    ∑ i, α i * ζ ^ i.val = 0 ↔ ∀ i j, α i = α j := by
   have hprime : Nat.Prime p := Fact.out
   constructor
   -- Forward direction: vanishing implies equal coefficients
