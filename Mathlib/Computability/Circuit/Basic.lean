@@ -57,16 +57,16 @@ def mapGate {H : Nat → Type} (φ : GateHom G H) : Circuit G n → Circuit H n
   | gate g f => gate (φ.map g) (fun i => mapGate φ (f i))
 
 @[simp] theorem mapGate_input {H : Nat → Type} (φ : GateHom G H) (i : Fin n) :
-    mapGate (G := G) (n := n) φ (input i) = input i :=
+    mapGate φ (input i) = input i :=
   rfl
 
 @[simp] theorem mapGate_const {H : Nat → Type} (φ : GateHom G H) (b : Bool) :
-    mapGate (G := G) (n := n) φ (const b) = const b :=
+    mapGate φ (const (n := n) b) = const b :=
   rfl
 
 @[simp] theorem mapGate_gate {H : Nat → Type} (φ : GateHom G H) {k : Nat} (g : G k)
     (f : Fin k → Circuit G n) :
-    mapGate (G := G) (n := n) φ (gate g f) = gate (φ.map g) (fun i => mapGate φ (f i)) :=
+    mapGate φ (gate g f) = gate (φ.map g) (fun i => mapGate φ (f i)) :=
   rfl
 
 /-- Evaluate a circuit on an input assignment. -/
@@ -150,7 +150,7 @@ theorem eval_mapGate {H : Nat → Type} [GateEval G] [GateEval H] (φ : GateHom 
     (hφ : ∀ {k : Nat} (g : G k) (x : Fin k → Bool), GateEval.eval (G := H) (φ.map g) x =
       GateEval.eval (G := G) g x)
     (c : Circuit G n) (x : Fin n → Bool) :
-    eval (mapGate (G := G) (n := n) φ c) x = eval c x := by
+    eval (mapGate φ c) x = eval c x := by
   induction c with
   | input i => rfl
   | const b => rfl
@@ -202,8 +202,7 @@ theorem mapGate_id {G : ℕ → Type} {n : Nat} (c : Circuit G n) :
   | gate g f ih => simp [ih]
 
 theorem mapGate_comp {H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) (c : Circuit G n) :
-    mapGate (G := G) (n := n) (GateHom.comp g f) c =
-      mapGate (G := H) (n := n) g (mapGate (G := G) (n := n) f c) := by
+    mapGate (GateHom.comp g f) c = mapGate g (mapGate f c) := by
   induction c with
   | input i => rfl
   | const b => rfl
