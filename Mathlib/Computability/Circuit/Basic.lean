@@ -54,7 +54,7 @@ variable {G : Nat → Type} {n : Nat}
 def mapGate {H : Nat → Type} (φ : GateHom G H) : Circuit G n → Circuit H n
   | input i => input i
   | const b => const b
-  | gate g f => gate (φ.map _ g) (fun i => mapGate φ (f i))
+  | gate g f => gate (φ.map g) (fun i => mapGate φ (f i))
 
 @[simp] theorem mapGate_input {H : Nat → Type} (φ : GateHom G H) (i : Fin n) :
     mapGate (G := G) (n := n) φ (input i) = input i :=
@@ -66,7 +66,7 @@ def mapGate {H : Nat → Type} (φ : GateHom G H) : Circuit G n → Circuit H n
 
 @[simp] theorem mapGate_gate {H : Nat → Type} (φ : GateHom G H) {k : Nat} (g : G k)
     (f : Fin k → Circuit G n) :
-    mapGate (G := G) (n := n) φ (gate g f) = gate (φ.map k g) (fun i => mapGate φ (f i)) :=
+    mapGate (G := G) (n := n) φ (gate g f) = gate (φ.map g) (fun i => mapGate φ (f i)) :=
   rfl
 
 /-- Evaluate a circuit on an input assignment. -/
@@ -147,7 +147,7 @@ theorem eval_subst [GateEval G] {m n : Nat} (c : Circuit G n) (σ : Fin n → Ci
       simp [subst, eval, ih]
 
 theorem eval_mapGate {H : Nat → Type} [GateEval G] [GateEval H] (φ : GateHom G H)
-    (hφ : ∀ (k : Nat) (g : G k) (x : Fin k → Bool), GateEval.eval (G := H) (φ.map k g) x =
+    (hφ : ∀ {k : Nat} (g : G k) (x : Fin k → Bool), GateEval.eval (G := H) (φ.map g) x =
       GateEval.eval (G := G) g x)
     (c : Circuit G n) (x : Fin n → Bool) :
     eval (mapGate (G := G) (n := n) φ c) x = eval c x := by
@@ -155,7 +155,7 @@ theorem eval_mapGate {H : Nat → Type} [GateEval G] [GateEval H] (φ : GateHom 
   | input i => rfl
   | const b => rfl
   | gate g f ih =>
-      simp [mapGate, eval, hφ, ih]
+      simp only [mapGate, eval, ih, hφ]
 
 @[simp]
 theorem mapInputs_id (c : Circuit G n) :

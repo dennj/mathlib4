@@ -58,24 +58,24 @@ class GateEval (G : Nat → Type) : Type where
 with semantics is expressed separately when needed. -/
 structure GateHom (G H : Nat → Type) : Type where
   /-- Map a gate label of arity `n` to a gate label of arity `n`. -/
-  map : ∀ n : Nat, G n → H n
+  map : ∀ {n : Nat}, G n → H n
 
 namespace GateHom
 
 /-- Identity gate homomorphism. -/
 def id (G : Nat → Type) : GateHom G G :=
-  ⟨fun _ g => g⟩
+  ⟨fun g => g⟩
 
 /-- Composition of gate homomorphisms. -/
 def comp {G H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) : GateHom G K :=
-  ⟨fun n x => g.map n (f.map n x)⟩
+  ⟨fun x => g.map (f.map x)⟩
 
-@[simp] theorem id_map {G : Nat → Type} (n : Nat) (x : G n) : (id G).map n x = x :=
+@[simp] theorem id_map {G : Nat → Type} {n : Nat} (x : G n) : (id G).map x = x :=
   rfl
 
-@[simp] theorem map_comp {G H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) (n : Nat)
+@[simp] theorem map_comp {G H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) {n : Nat}
     (x : G n) :
-    (comp g f).map n x = g.map n (f.map n x) :=
+    (comp g f).map x = g.map (f.map x) :=
   rfl
 
 @[simp] theorem comp_id {G H : Nat → Type} (f : GateHom G H) : comp f (id G) = f :=
@@ -242,27 +242,27 @@ namespace AC0Gate
 
 /-- The canonical injection of `AC0Gate` into `ACC0Gate m`. -/
 def toACC0Gate (m : Nat) : GateHom AC0Gate (ACC0Gate m) :=
-  ⟨fun n g => ACC0Gate.ac0 (m := m) (n := n) g⟩
+  ⟨fun g => ACC0Gate.ac0 g⟩
 
 /-- The canonical injection of `AC0Gate` into `TC0Gate`. -/
 def toTC0Gate : GateHom AC0Gate TC0Gate :=
-  ⟨fun n g => TC0Gate.ac0 (n := n) g⟩
+  ⟨fun g => TC0Gate.ac0 g⟩
 
-@[simp] theorem toACC0Gate_map (m : Nat) (n : Nat) (g : AC0Gate n) :
-    (toACC0Gate m).map n g = ACC0Gate.ac0 (m := m) (n := n) g :=
+@[simp] theorem toACC0Gate_map (m : Nat) {n : Nat} (g : AC0Gate n) :
+    (toACC0Gate m).map g = ACC0Gate.ac0 (m := m) g :=
   rfl
 
-@[simp] theorem toTC0Gate_map (n : Nat) (g : AC0Gate n) :
-    toTC0Gate.map n g = TC0Gate.ac0 (n := n) g :=
+@[simp] theorem toTC0Gate_map {n : Nat} (g : AC0Gate n) :
+    toTC0Gate.map g = TC0Gate.ac0 g :=
   rfl
 
-@[simp] theorem eval_toACC0Gate (m n : Nat) (g : AC0Gate n) (x : Fin n → Bool) :
-    GateEval.eval (G := ACC0Gate m) ((toACC0Gate m).map n g) x =
+@[simp] theorem eval_toACC0Gate (m : Nat) {n : Nat} (g : AC0Gate n) (x : Fin n → Bool) :
+    GateEval.eval (G := ACC0Gate m) ((toACC0Gate m).map g) x =
       GateEval.eval (G := AC0Gate) g x :=
   rfl
 
-@[simp] theorem eval_toTC0Gate (n : Nat) (g : AC0Gate n) (x : Fin n → Bool) :
-    GateEval.eval (G := TC0Gate) (toTC0Gate.map n g) x =
+@[simp] theorem eval_toTC0Gate {n : Nat} (g : AC0Gate n) (x : Fin n → Bool) :
+    GateEval.eval (G := TC0Gate) (toTC0Gate.map g) x =
       GateEval.eval (G := AC0Gate) g x :=
   rfl
 
