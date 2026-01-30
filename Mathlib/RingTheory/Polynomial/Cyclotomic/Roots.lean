@@ -235,92 +235,58 @@ This characterizes exactly when such sums vanish, and follows from the irreducib
 of the cyclotomic polynomial. -/
 theorem sum_eq_zero_iff_eq_coeff (hζ : IsPrimitiveRoot ζ p) (α : Fin p → ℚ) :
     ∑ i : Fin p, (α i : K) * ζ ^ i.val = 0 ↔ ∀ i j : Fin p, α i = α j := by
+  have hprime : Nat.Prime p := Fact.out
   constructor
   -- Forward direction: vanishing implies equal coefficients
-  · intro hsum
-    classical
-    have hprime : Nat.Prime p := Fact.out
-    have hpos : 0 < p := hprime.pos
-    have hne0 : p ≠ 0 := hprime.ne_zero
-    have hone_lt : 1 < p := hprime.one_lt
-    haveI : NeZero p := ⟨hne0⟩
+  · intro
     -- Use a total function on ℕ to avoid dependent Fin casts.
-    let αNat : ℕ → ℚ := fun i => if hi : i < p then α ⟨i, hi⟩ else 0
+    let αNat i := if hi : i < p then α ⟨i, hi⟩ else 0
     -- Rewrite the sum over `Fin p` as a sum over `Finset.range p`.
-    have hαNat_val : ∀ i : Fin p, αNat i.val = α i := fun ⟨_, hi⟩ => dif_pos hi
-    have hsum_range : ∑ i ∈ Finset.range p, (αNat i : K) * ζ ^ i = 0 := by
-      have := Fin.sum_univ_eq_sum_range (fun i => (αNat i : K) * ζ ^ i) p
-      simp only [hαNat_val] at this; rw [← this]; exact hsum
+    have hαNat_val i : αNat i.val = α i := dif_pos _
     -- Split off the last term at index `n = p - 1`.
-    set n : ℕ := p.pred with hn
-    have hn_succ : n.succ = p := by subst n; exact Nat.succ_pred_eq_of_pos hpos
-    let g : ℕ → K := fun i => (αNat i : K) * ζ ^ i
-    have hsum_split : ∑ i ∈ Finset.range n, g i + g n = 0 := by
-      have hn1 : n + 1 = p := by simpa [Nat.succ_eq_add_one] using hn_succ
-      have : ∑ i ∈ Finset.range (n + 1), g i = 0 := by simpa [g, hn1] using hsum_range
-      simpa [Finset.sum_range_succ] using this
-    -- Use the standard relation for primitive roots: `ζ^{p-1} = -∑_{i<p-1} ζ^i`.
-    have hzpow : ζ ^ n = -∑ i ∈ Finset.range n, ζ ^ i := by
-      subst n
-      simpa using hζ.pow_sub_one_eq hone_lt
+    set n := p.pred
+    have hn_succ := Nat.succ_pred_eq_of_pos hprime.pos
     -- Derive a vanishing relation with coefficients `αᵢ - α_{p-1}` and exponents `< n`.
-    have hrel : ∑ i ∈ Finset.range n, ((αNat i - αNat n) : K) * ζ ^ i = 0 := by
-      have h1 : ∑ i ∈ Finset.range n, g i + (αNat n : K) * ζ ^ n = 0 := by
-        simpa [g] using hsum_split
-      have h2 : ∑ i ∈ Finset.range n, g i - (αNat n : K) * ∑ i ∈ Finset.range n, ζ ^ i = 0 := by
-        simpa [hzpow, sub_eq_add_neg, mul_neg, g, mul_assoc, add_assoc] using h1
-      simpa [g, Finset.mul_sum, Finset.sum_sub_distrib, sub_mul] using h2
+    have : ∑ i ∈ Finset.range (n + 1), αNat i * ζ ^ i = 0 := by
+      simpa [show n + 1 = p by omega, ← Fin.sum_univ_eq_sum_range, hαNat_val]
+    have : ∑ i ∈ Finset.range n, αNat i * ζ ^ i - αNat n * ∑ i ∈ Finset.range n, ζ ^ i = 0 := by
+      rw [Finset.sum_range_succ] at this
+      -- Use the standard relation for primitive roots: `ζ^{p-1} = -∑_{i<p-1} ζ^i`.
+      grind [hζ.pow_sub_one_eq hprime.one_lt]
+    have hrel : ∑ i ∈ Finset.range n, (αNat i - αNat n) * ζ ^ i = 0 := by
+      simpa [Finset.mul_sum, sub_mul]
     -- Package the relation as a polynomial over ℚ.
-    let q : ℚ[X] := ∑ i ∈ Finset.range n, Polynomial.monomial i (αNat i - αNat n)
-    have hq_aeval : Polynomial.aeval ζ q = 0 := by
-      have halg : ∀ x : ℚ, (algebraMap ℚ K) x = (x : K) := fun _ => rfl
-      simp only [q, map_sum, Polynomial.aeval_monomial, halg, map_sub]
+    let q := ∑ i ∈ Finset.range n, monomial i (αNat i - αNat n)
+    have hq_aeval : aeval ζ q = 0 := by
+      have halg x : algebraMap ℚ K x = x := rfl
+      simp only [q, map_sum, aeval_monomial, halg, map_sub]
       convert hrel using 2 with i
       ring
     -- The cyclotomic polynomial is the minimal polynomial, so it divides `q`.
-    have hmin : Polynomial.cyclotomic p ℚ = minpoly ℚ ζ :=
-      Polynomial.cyclotomic_eq_minpoly_rat hζ hpos
-    have hdvd : Polynomial.cyclotomic p ℚ ∣ q := by
-      have : minpoly ℚ ζ ∣ q := minpoly.dvd ℚ ζ hq_aeval
-      simpa [hmin] using this
+    have hmin : cyclotomic p ℚ = minpoly ℚ ζ :=
+      cyclotomic_eq_minpoly_rat hζ hprime.pos
+    have hdvd : cyclotomic p ℚ ∣ q := by
+      simpa [hmin] using minpoly.dvd ℚ ζ hq_aeval
     -- The polynomial `q` has degree `< p - 1`, while `cyclotomic p` has degree `p - 1`.
-    have hn_pos : 0 < n := by
-      subst n
-      have : 0 < p - 1 := Nat.sub_pos_of_lt hone_lt
-      simpa [Nat.pred_eq_sub_one] using this
-    have hq_natDegree_le : q.natDegree ≤ n - 1 := by
-      refine Polynomial.natDegree_sum_le_of_forall_le (s := Finset.range n)
-        (f := fun i => Polynomial.monomial i (αNat i - αNat n)) fun i hi => ?_
-      have hi' : i < n := Finset.mem_range.mp hi
-      have hi_le : i ≤ n - 1 := Nat.le_pred_of_lt hi'
-      exact (Polynomial.natDegree_monomial_le (a := αNat i - αNat n) (m := i)).trans hi_le
-    have hcycl_natDegree : (Polynomial.cyclotomic p ℚ).natDegree = n := by
-      subst n
-      simp [Polynomial.natDegree_cyclotomic, Nat.totient_prime hprime]
+    have hq_natDegree_le : q.natDegree ≤ n - 1 :=
+      natDegree_sum_le_of_forall_le _ (monomial · _)
+        fun _ _ => (natDegree_monomial_le _).trans (by grind)
+    have hcycl_natDegree : (cyclotomic p ℚ).natDegree = n := by
+      simp [n, natDegree_cyclotomic, Nat.totient_prime hprime]
     -- Hence `q = 0`.
-    have hq0 : q = 0 := Polynomial.eq_zero_of_dvd_of_natDegree_lt hdvd <| by
-      rw [hcycl_natDegree]
-      exact lt_of_le_of_lt hq_natDegree_le (Nat.sub_lt hn_pos Nat.one_pos)
+    have hq0 : q = 0 := eq_zero_of_dvd_of_natDegree_lt hdvd <| by grind [hprime.one_lt]
     -- Extract coefficient equalities: for every `i < n`, `αNat i = αNat n`.
-    have hαNat_eq (i : ℕ) (hi : i < n) : αNat i = αNat n := by
+    have hαNat_eq i (hi : i < n) : αNat i = αNat n := by
       have hcoeff : q.coeff i = αNat i - αNat n := by
-        simp only [q, Polynomial.finset_sum_coeff, Polynomial.coeff_monomial]
-        rw [Finset.sum_eq_single i (fun j _ hji => by simp [hji])
-            (fun h => (h (Finset.mem_range.mpr hi)).elim)]
-        simp
-      simp only [hq0, Polynomial.coeff_zero] at hcoeff
-      linarith
+        simp only [q, finset_sum_coeff, coeff_monomial]
+        rw [Finset.sum_eq_single _ (fun _ _ hx ↦ if_neg hx) (by grind), if_pos rfl]
+      grind [coeff_zero]
     -- Translate back to `Fin p`: all coefficients equal α at position n.
-    have hlast : n < p := by simp only [hn_succ.symm, Nat.lt_succ_self]
-    suffices ∀ i : Fin p, α i = αNat n by exact fun i j => (this i).trans (this j).symm
+    suffices ∀ i, α i = αNat n from fun i j => (this i).trans (this j).symm
     intro i
-    have hi_le : i.val ≤ n := by
-      have : i.val < n.succ := hn_succ.symm ▸ i.isLt
-      exact Nat.lt_succ_iff.mp this
-    rcases hi_le.lt_or_eq with hi_lt | hi_eq
-    · exact (hαNat_val i).symm.trans (hαNat_eq i.val hi_lt)
-    · have : i = ⟨n, hlast⟩ := Fin.ext hi_eq
-      rw [this, ← hαNat_val ⟨n, hlast⟩]
+    rcases (show i ≤ n by omega).lt_or_eq with hi_lt | hi_eq
+    · exact (hαNat_val i).symm.trans (hαNat_eq i hi_lt)
+    · rw [show i = ⟨n, by omega⟩ from Fin.ext hi_eq, ← hαNat_val]
   -- Reverse direction: equal coefficients implies vanishing
   · intro heq
     have hprime : Nat.Prime p := Fact.out
