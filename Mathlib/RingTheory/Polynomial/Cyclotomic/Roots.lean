@@ -295,8 +295,7 @@ theorem sum_eq_zero_iff_eq_coeff (hζ : IsPrimitiveRoot ζ p) (α : Fin p → �
 
 /-- Variant of `sum_eq_zero_iff_eq_coeff` with integer coefficients. -/
 theorem sum_eq_zero_iff_eq_coeff' (hζ : IsPrimitiveRoot ζ p) (α : Fin p → ℤ) :
-    ∑ i, α i * ζ ^ i.val = 0 ↔ ∀ i j, α i = α j :=
-  ⟨fun hsum i j ↦ by simpa using (sum_eq_zero_iff_eq_coeff hζ (α ·)).mp (by simpa using hsum) i j,
-    fun heq ↦ by simpa using (sum_eq_zero_iff_eq_coeff hζ (α ·)).mpr (by simpa using heq)⟩
+    ∑ i, α i * ζ ^ i.val = 0 ↔ ∀ i j, α i = α j := by
+  simpa using sum_eq_zero_iff_eq_coeff hζ (Int.cast ∘ α)
 
 end IsPrimitiveRoot
