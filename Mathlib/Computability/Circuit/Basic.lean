@@ -157,8 +157,9 @@ theorem eval_mapGate {H : Nat → Type} [GateEval G] [GateEval H] (φ : GateHom 
   | gate g f ih =>
       simp [mapGate, eval, hφ, ih]
 
+@[simp]
 theorem mapInputs_id (c : Circuit G n) :
-    mapInputs (G := G) c (fun i => i) = c := by
+    mapInputs c id = c := by
   induction c with
   | input i => rfl
   | const b => rfl
