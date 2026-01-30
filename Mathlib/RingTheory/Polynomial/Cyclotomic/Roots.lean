@@ -1,7 +1,7 @@
 /-
-Copyright (c) 2020 Riccardo Brasca. All rights reserved.
+Copyright (c) 2020 Riccardo Brasca, 2026 Dennj Osele. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
-Authors: Riccardo Brasca
+Authors: Riccardo Brasca, Dennj Osele
 -/
 module
 
@@ -208,3 +208,162 @@ theorem cyclotomic.isCoprime_rat {n m : ℕ} (h : n ≠ m) :
 end minpoly
 
 end Polynomial
+
+/-!
+## Vanishing sums of roots of unity
+
+For a prime `p`, a ℚ-linear combination of `p`-th roots of unity vanishes if and only if
+all coefficients are equal. This is a fundamental result in algebraic number theory,
+following from the irreducibility of the `p`-th cyclotomic polynomial.
+
+## References
+
+* Washington, *Introduction to Cyclotomic Fields*, Lemma 2.8.5
+-/
+
+namespace IsPrimitiveRoot
+
+open Polynomial
+
+variable {K : Type*} [Field K] [CharZero K]
+variable {p : ℕ} [Fact (Nat.Prime p)] {ζ : K}
+
+/-- For a prime `p` and a primitive `p`-th root `ζ` in a characteristic zero field,
+a ℚ-linear combination `∑ αᵢ ζ^i` vanishes if and only if all coefficients `αᵢ` are equal.
+
+This characterizes exactly when such sums vanish, and follows from the irreducibility
+of the cyclotomic polynomial. -/
+theorem sum_eq_zero_iff_eq_coeff (hζ : IsPrimitiveRoot ζ p) (α : Fin p → ℚ) :
+    ∑ i : Fin p, (α i : K) * ζ ^ i.val = 0 ↔ ∀ i j : Fin p, α i = α j := by
+  constructor
+  -- Forward direction: vanishing implies equal coefficients
+  · intro hsum
+    classical
+    have hprime : Nat.Prime p := Fact.out
+    have hpos : 0 < p := hprime.pos
+    have hne0 : p ≠ 0 := hprime.ne_zero
+    have hone_lt : 1 < p := hprime.one_lt
+    haveI : NeZero p := ⟨hne0⟩
+    -- Use a total function on ℕ to avoid dependent Fin casts.
+    let αNat : ℕ → ℚ := fun i => if hi : i < p then α ⟨i, hi⟩ else 0
+    -- Rewrite the sum over `Fin p` as a sum over `Finset.range p`.
+    have hsum_range : ∑ i ∈ Finset.range p, (αNat i : K) * ζ ^ i = 0 := by
+      let f : ℕ → K := fun i => (αNat i : K) * ζ ^ i
+      have hαNat_val : ∀ i : Fin p, αNat i.val = α i := fun i => by
+        cases i with | mk v hv => simp only [αNat, dif_pos hv]
+      have hsum' : ∑ i : Fin p, f i.val = 0 := by simpa [f, hαNat_val] using hsum
+      have hEq : ∑ i : Fin p, f i.val = ∑ i ∈ Finset.range p, f i := by
+        simpa using Fin.sum_univ_eq_sum_range f p
+      simpa [hEq, f] using hsum'
+    -- Split off the last term at index `n = p - 1`.
+    set n : ℕ := p.pred with hn
+    have hn_succ : n.succ = p := by subst n; exact Nat.succ_pred_eq_of_pos hpos
+    let g : ℕ → K := fun i => (αNat i : K) * ζ ^ i
+    have hsum_split : ∑ i ∈ Finset.range n, g i + g n = 0 := by
+      have hn1 : n + 1 = p := by simpa [Nat.succ_eq_add_one] using hn_succ
+      have : ∑ i ∈ Finset.range (n + 1), g i = 0 := by simpa [g, hn1] using hsum_range
+      simpa [Finset.sum_range_succ] using this
+    -- Use the standard relation for primitive roots: `ζ^{p-1} = -∑_{i<p-1} ζ^i`.
+    have hzpow : ζ ^ n = -∑ i ∈ Finset.range n, ζ ^ i := by
+      subst n
+      simpa using hζ.pow_sub_one_eq hone_lt
+    -- Derive a vanishing relation with coefficients `αᵢ - α_{p-1}` and exponents `< n`.
+    have hrel : ∑ i ∈ Finset.range n, ((αNat i - αNat n) : K) * ζ ^ i = 0 := by
+      have h1 : ∑ i ∈ Finset.range n, g i + (αNat n : K) * ζ ^ n = 0 := by
+        simpa [g] using hsum_split
+      have h2 : ∑ i ∈ Finset.range n, g i - (αNat n : K) * ∑ i ∈ Finset.range n, ζ ^ i = 0 := by
+        simpa [hzpow, sub_eq_add_neg, mul_neg, g, mul_assoc, add_assoc] using h1
+      simpa [g, Finset.mul_sum, Finset.sum_sub_distrib, sub_mul] using h2
+    -- Package the relation as a polynomial over ℚ.
+    let q : ℚ[X] := ∑ i ∈ Finset.range n, Polynomial.monomial i (αNat i - αNat n)
+    have hq_aeval : Polynomial.aeval ζ q = 0 := by
+      have halg : ∀ x : ℚ, (algebraMap ℚ K) x = (x : K) := fun _ => rfl
+      simp only [q, map_sum, Polynomial.aeval_monomial, halg, map_sub]
+      convert hrel using 2 with i
+      ring
+    -- The cyclotomic polynomial is the minimal polynomial, so it divides `q`.
+    have hmin : Polynomial.cyclotomic p ℚ = minpoly ℚ ζ :=
+      Polynomial.cyclotomic_eq_minpoly_rat hζ hpos
+    have hdvd : Polynomial.cyclotomic p ℚ ∣ q := by
+      have : minpoly ℚ ζ ∣ q := minpoly.dvd ℚ ζ hq_aeval
+      simpa [hmin] using this
+    -- The polynomial `q` has degree `< p - 1`, while `cyclotomic p` has degree `p - 1`.
+    have hn_pos : 0 < n := by
+      subst n
+      have : 0 < p - 1 := Nat.sub_pos_of_lt hone_lt
+      simpa [Nat.pred_eq_sub_one] using this
+    have hq_natDegree_le : q.natDegree ≤ n - 1 := by
+      refine Polynomial.natDegree_sum_le_of_forall_le (s := Finset.range n)
+        (f := fun i => Polynomial.monomial i (αNat i - αNat n)) fun i hi => ?_
+      have hi' : i < n := Finset.mem_range.mp hi
+      have hi_le : i ≤ n - 1 := Nat.le_pred_of_lt hi'
+      exact (Polynomial.natDegree_monomial_le (a := αNat i - αNat n) (m := i)).trans hi_le
+    have hcycl_natDegree : (Polynomial.cyclotomic p ℚ).natDegree = n := by
+      subst n
+      simp [Polynomial.natDegree_cyclotomic, Nat.totient_prime hprime]
+    have hq_lt : q.natDegree < (Polynomial.cyclotomic p ℚ).natDegree := by
+      have h1 : q.natDegree ≤ n - 1 := hq_natDegree_le
+      have h2 : q.natDegree < n := lt_of_le_of_lt h1 (Nat.sub_lt hn_pos Nat.one_pos)
+      simpa [hcycl_natDegree] using h2
+    -- Hence `q = 0`.
+    have hq0 : q = 0 :=
+      Polynomial.eq_zero_of_dvd_of_natDegree_lt (p := Polynomial.cyclotomic p ℚ) (q := q) hdvd hq_lt
+    -- Extract coefficient equalities: for every `i < n`, `αNat i = αNat n`.
+    have hαNat_eq (i : ℕ) (hi : i < n) : αNat i = αNat n := by
+      have hi_mem : i ∈ Finset.range n := Finset.mem_range.mpr hi
+      have hcoeff : q.coeff i = αNat i - αNat n := by
+        simp only [q, Polynomial.finset_sum_coeff, Polynomial.coeff_monomial]
+        rw [Finset.sum_eq_single i]
+        · simp only [↓reduceIte]
+        · intro j _ hji
+          simp only [hji, ↓reduceIte]
+        · intro hi'
+          exact (hi' hi_mem).elim
+      have hcoeff0 : q.coeff i = 0 := by simp [hq0]
+      have hsub0 : αNat i - αNat n = 0 := by simpa [hcoeff] using hcoeff0
+      exact sub_eq_zero.mp hsub0
+    -- Translate back to `Fin p`.
+    let last : Fin p := ⟨n, by subst n; exact Nat.pred_lt hne0⟩
+    have hα_last (i : Fin p) : α i = α last := by
+      have hi_le : i.val ≤ n := by
+        have : i.val < n.succ := lt_of_lt_of_eq i.isLt hn_succ.symm
+        exact Nat.lt_succ_iff.mp this
+      rcases lt_or_eq_of_le hi_le with hi_lt | hi_eq
+      · have hαi : αNat i.val = α i := by
+          have : (⟨i.val, i.isLt⟩ : Fin p) = i := by ext; rfl
+          simp only [αNat, dif_pos i.isLt, this]
+        have hαlast : αNat n = α last := by
+          have hnlt : n < p := lt_of_lt_of_eq (Nat.lt_succ_self n) hn_succ
+          simp only [αNat, dif_pos hnlt, last]
+        exact (hαi.symm.trans (hαNat_eq i.val hi_lt)).trans hαlast
+      · have : i = last := Fin.ext (by simp only [last, hi_eq])
+        simp only [this]
+    intro i j
+    exact (hα_last i).trans (hα_last j).symm
+  -- Reverse direction: equal coefficients implies vanishing
+  · intro heq
+    have hprime : Nat.Prime p := Fact.out
+    have hone_lt : 1 < p := hprime.one_lt
+    have hconst : ∀ i : Fin p, α i = α 0 := fun i => heq i 0
+    calc ∑ i : Fin p, (α i : K) * ζ ^ i.val
+        = ∑ i : Fin p, (α 0 : K) * ζ ^ i.val := by congr 1; ext i; rw [hconst i]
+      _ = (α 0 : K) * ∑ i : Fin p, ζ ^ i.val := by rw [Finset.mul_sum]
+      _ = (α 0 : K) * ∑ i ∈ Finset.range p, ζ ^ i := by
+          congr 1; rw [← Fin.sum_univ_eq_sum_range (fun i => ζ ^ i) p]
+      _ = (α 0 : K) * 0 := by rw [hζ.geom_sum_eq_zero hone_lt]
+      _ = 0 := mul_zero _
+
+/-- Variant of `sum_eq_zero_iff_eq_coeff` with integer coefficients. -/
+theorem sum_eq_zero_iff_eq_coeff' (hζ : IsPrimitiveRoot ζ p) (α : Fin p → ℤ) :
+    ∑ i : Fin p, (α i : K) * ζ ^ i.val = 0 ↔ ∀ i j : Fin p, α i = α j := by
+  constructor
+  · intro hsum
+    have h := (sum_eq_zero_iff_eq_coeff hζ (fun i => (α i : ℚ))).mp (by simpa using hsum)
+    intro i j
+    have : (α i : ℚ) = (α j : ℚ) := h i j
+    exact Int.cast_injective this
+  · intro heq
+    have h := (sum_eq_zero_iff_eq_coeff hζ (fun i => (α i : ℚ))).mpr (by simpa using heq)
+    simpa using h
+
+end IsPrimitiveRoot
