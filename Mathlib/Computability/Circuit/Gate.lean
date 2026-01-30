@@ -73,7 +73,7 @@ def comp {G H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) : GateHom G 
 @[simp] theorem id_map {G : Nat → Type} (n : Nat) (x : G n) : (id G).map n x = x :=
   rfl
 
-@[simp] theorem comp_map {G H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) (n : Nat)
+@[simp] theorem map_comp {G H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) (n : Nat)
     (x : G n) :
     (comp g f).map n x = g.map n (f.map n x) :=
   rfl
