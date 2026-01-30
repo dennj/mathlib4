@@ -44,7 +44,7 @@ namespace Computability
 inductive Circuit (G : Nat → Type) (n : Nat) : Type where
   | input : Fin n → Circuit G n
   | const : Bool → Circuit G n
-  | gate : {k : Nat} → G k → (Fin k → Circuit G n) → Circuit G n
+  | gate {k : Nat} : G k → (Fin k → Circuit G n) → Circuit G n
 
 namespace Circuit
 
