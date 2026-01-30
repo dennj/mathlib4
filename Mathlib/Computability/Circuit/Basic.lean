@@ -193,8 +193,9 @@ theorem subst_comp {m ℓ n : Nat} (c : Circuit G n) (σ₁ : Fin n → Circuit 
   | gate g f ih =>
       simp [subst, ih]
 
-theorem mapGate_id (c : Circuit G n) :
-    mapGate (G := G) (n := n) (GateHom.id G) c = c := by
+@[simp]
+theorem mapGate_id {G : ℕ → Type} {n : Nat} (c : Circuit G n) :
+    mapGate (GateHom.id G) c = c := by
   induction c with
   | input i => rfl
   | const b => rfl
