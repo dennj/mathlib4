@@ -8,6 +8,7 @@ module
 public import Mathlib.Data.Matrix.Basic
 public import Mathlib.Data.Matrix.Mul
 public import Mathlib.Analysis.Convex.Basic
+public import Mathlib.Analysis.Convex.StdSimplex
 public import Mathlib.LinearAlgebra.Matrix.Permutation
 
 /-!
@@ -225,5 +226,14 @@ lemma transpose_mem_colStochastic_iff_mem_rowStochastic :
   simp only [mem_colStochastic_iff_sum, mem_rowStochastic_iff_sum, transpose_apply,
     and_congr_left_iff]
   exact fun _ ↦ forall_swap
+
+/-- Multiplying a probability vector on the left by a row-stochastic matrix
+preserves membership in the standard simplex. -/
+lemma vecMul_mem_stdSimplex (hM : M ∈ rowStochastic R n)
+    {v : n → R} (hv : v ∈ stdSimplex R n) : v ᵥ* M ∈ stdSimplex R n := by
+  refine ⟨fun j => Finset.sum_nonneg fun i _ => mul_nonneg (hv.1 i) (hM.1 i j), ?_⟩
+  simp only [vecMul, dotProduct]
+  rw [Finset.sum_comm, ← hv.2]
+  exact Finset.sum_congr rfl fun i _ => by simp [← mul_sum, sum_row_of_mem_rowStochastic hM]
 
 end Matrix
