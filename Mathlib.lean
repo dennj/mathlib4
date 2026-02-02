@@ -2101,6 +2101,7 @@ public import Mathlib.Analysis.NormedSpace.RCLike
 public import Mathlib.Analysis.NormedSpace.Real
 public import Mathlib.Analysis.NormedSpace.RieszLemma
 public import Mathlib.Analysis.NormedSpace.SphereNormEquiv
+public import Mathlib.Analysis.ODE.DiscreteGronwall
 public import Mathlib.Analysis.ODE.Gronwall
 public import Mathlib.Analysis.ODE.PicardLindelof
 public import Mathlib.Analysis.Oscillation
