@@ -746,6 +746,11 @@ theorem vecMul_diagonal [Fintype m] [DecidableEq m] (v w : m → α) (x : m) :
     (v ᵥ* diagonal w) x = v x * w x :=
   dotProduct_diagonal' v w x
 
+/-- The dot product of `x ᵥ* diagonal d` with `y` equals `∑ i, d i * x i * y i`. -/
+theorem vecMul_diagonal_dotProduct [Fintype m] [DecidableEq m] [NonUnitalCommSemiring R]
+    (d x y : m → R) : x ᵥ* diagonal d ⬝ᵥ y = ∑ i, d i * x i * y i := by
+  simp only [dotProduct, vecMul_diagonal, mul_comm (x _) (d _), mul_assoc]
+
 /-- Associate the dot product of `mulVec` to the left. -/
 theorem dotProduct_mulVec [Fintype n] [Fintype m] [NonUnitalSemiring R] (v : m → R)
     (A : Matrix m n R) (w : n → R) : v ⬝ᵥ A *ᵥ w = v ᵥ* A ⬝ᵥ w := by
@@ -1077,11 +1082,24 @@ theorem vecMul_transpose [Fintype n] (A : Matrix m n α) (x : n → α) : x ᵥ*
   ext
   apply dotProduct_comm
 
+/-- Bilinear form identity: `x ⬝ᵥ Aᵀ *ᵥ y = y ⬝ᵥ A *ᵥ x` for commutative semirings. -/
+theorem dotProduct_transpose_mulVec [Fintype m] (A : Matrix m m α) (x y : m → α) :
+    x ⬝ᵥ Aᵀ *ᵥ y = y ⬝ᵥ A *ᵥ x := by
+  rw [dotProduct_mulVec, dotProduct_comm, vecMul_transpose]
+
 theorem mulVec_vecMul [Fintype n] [Fintype o] (A : Matrix m n α) (B : Matrix o n α) (x : o → α) :
     A *ᵥ (x ᵥ* B) = (A * Bᵀ) *ᵥ x := by rw [← mulVec_mulVec, mulVec_transpose]
 
 theorem vecMul_mulVec [Fintype m] [Fintype n] (A : Matrix m n α) (B : Matrix m o α) (x : n → α) :
     (A *ᵥ x) ᵥ* B = x ᵥ* (Aᵀ * B) := by rw [← vecMul_vecMul, vecMul_transpose]
+
+/-- Multiplying a matrix by a diagonal matrix and then applying to a vector equals a weighted sum
+of the matrix columns: `(A * diagonal d) *ᵥ x = ∑ i, (d i * x i) • A.col i`. -/
+theorem mul_diagonal_mulVec [Fintype n] [DecidableEq n] (A : Matrix m n α) (d x : n → α) :
+    (A * diagonal d) *ᵥ x = ∑ i : n, (d i * x i) • A.col i := by
+  ext j
+  simp only [mulVec, dotProduct, mul_diagonal, col_apply, Pi.smul_apply, smul_eq_mul,
+    Finset.sum_apply, mul_comm, mul_left_comm]
 
 end NonUnitalCommSemiring
 
