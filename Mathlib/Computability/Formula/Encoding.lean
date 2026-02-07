@@ -5,18 +5,18 @@ Authors: Dennj Osele
 -/
 module
 
-public import Mathlib.Computability.Circuit.Basic
+public import Mathlib.Computability.Formula.Basic
 public import Mathlib.Logic.Encodable.Basic
 import Mathlib.Data.Nat.Pairing
 import Mathlib.Data.List.OfFn
 
 /-!
-# Encoding circuits
+# Encoding formulas
 
-This file provides an `Encodable` instance for syntax-tree circuits `Circuit G n`, assuming the
+This file provides an `Encodable` instance for syntax-tree formulas `Formula G n`, assuming the
 gate labels are encodable: `[∀ k, Encodable (G k)]`.
 
-The approach is to translate circuits to a small s-expression type `S`, and then use a fixed
+The approach is to translate formulas to a small s-expression type `S`, and then use a fixed
 encoding `S → ℕ` based on `Nat.pair`.
 -/
 
@@ -24,7 +24,7 @@ encoding `S → ℕ` based on `Nat.pair`.
 
 namespace Computability
 
-namespace Circuit
+namespace Formula
 
 namespace Encoding
 
@@ -151,7 +151,7 @@ section
 
 variable [∀ k, Encodable (G k)]
 
-def toS : Circuit G n → S
+def toS : Formula G n → S
   | .input i =>
       S.cons (S.nat 0) (S.cons (S.nat (Encodable.encode i)) (S.nat 0))
   | .const b =>
@@ -164,20 +164,20 @@ def toS : Circuit G n → S
 
 mutual
 
-def fromS : S → Option (Circuit G n)
+def fromS : S → Option (Formula G n)
   | S.cons (S.nat 0) (S.cons (S.nat i) (S.nat 0)) =>
-      (Encodable.decode i).map Circuit.input
+      (Encodable.decode i).map Formula.input
   | S.cons (S.nat 1) (S.cons (S.nat b) (S.nat 0)) =>
-      (Encodable.decode b).map Circuit.const
+      (Encodable.decode b).map Formula.const
   | S.cons (S.nat 2) (S.cons (S.nat k) (S.cons (S.nat g) (S.cons ch (S.nat 0)))) => by
       classical
       refine (Encodable.decode (α := G k) g).bind fun g => ?_
       refine (fromSChildren k ch).map fun f => ?_
-      exact Circuit.gate g f
+      exact Formula.gate g f
   | _ => none
 termination_by s => sizeOf s
 
-def fromSChildren : (k : Nat) → S → Option (Fin k → Circuit G n)
+def fromSChildren : (k : Nat) → S → Option (Fin k → Formula G n)
   | 0, s =>
       match s with
       | S.nat 0 => some Fin.elim0
@@ -199,13 +199,13 @@ decreasing_by
 end
 
 theorem fromSChildren_list_ofFn :
-    ∀ {k : Nat} (f : Fin k → Circuit G n),
+    ∀ {k : Nat} (f : Fin k → Formula G n),
       (∀ i : Fin k, fromS (toS (f i)) = some (f i)) →
         fromSChildren k (S.list (List.ofFn fun i : Fin k => toS (f i))) = some f := by
   intro k f hf
   induction k with
   | zero =>
-      have hf0 : f = (Fin.elim0 : Fin 0 → Circuit G n) := by
+      have hf0 : f = (Fin.elim0 : Fin 0 → Formula G n) := by
         funext i
         cases (Nat.not_lt_zero i.1 i.2)
       subst hf0
@@ -239,7 +239,7 @@ theorem fromSChildren_list_ofFn :
       rw [hofn]
       simp [S.list, fromSChildren, hf_head, hk', hcons]
 
-theorem fromS_toS : ∀ c : Circuit G n, fromS (toS c) = some c := by
+theorem fromS_toS : ∀ c : Formula G n, fromS (toS c) = some c := by
   intro c
   induction c with
   | input i =>
@@ -256,13 +256,13 @@ theorem fromS_toS : ∀ c : Circuit G n, fromS (toS c) = some c := by
       -- Now unfold `fromS` at the gate constructor.
       simp [toS, fromS, hch, Encodable.encodek]
 
-instance : Encodable (Circuit G n) :=
-  Encodable.ofLeftInjection (α := S) (β := Circuit G n) toS fromS fromS_toS
+instance : Encodable (Formula G n) :=
+  Encodable.ofLeftInjection (α := S) (β := Formula G n) toS fromS fromS_toS
 
 end
 
 end Encoding
 
-end Circuit
+end Formula
 
 end Computability

@@ -7,7 +7,7 @@ module
 
 public import Mathlib.Computability.Circuit.TseitinAC0
 public import Mathlib.Computability.Circuit.CNFThreshold
-public import Mathlib.Computability.Circuit.Gate
+public import Mathlib.Computability.Gate
 import Mathlib.Data.List.OfFn
 
 /-!
@@ -31,9 +31,11 @@ threshold gates.
 
 namespace Computability
 
+open Gate
+
 namespace Circuit
 
-open DAG
+open CircuitDAG
 
 namespace Tseitin
 
@@ -73,7 +75,7 @@ def liftThr {N k t : Nat} (i : Fin N) :
   | Sum.inl v => VarTC.base (n := n) (N := N) v
   | Sum.inr u => VarTC.thrAux (n := n) (N := N) i k t u
 
-def nodeClauses (c : DAGCircuit TC0Gate n) (i : Fin c.N) :
+def nodeClauses (c : Circuit TC0Gate n) (i : Fin c.N) :
     CNF.Formula (VarTC (n := n) c.N) :=
   match c.node i.1 i.2 with
   | .input j =>
@@ -99,10 +101,10 @@ def nodeClauses (c : DAGCircuit TC0Gate n) (i : Fin c.N) :
 
 /-! ## Full encodings -/
 
-def core (c : DAGCircuit TC0Gate n) : CNF.Formula (VarTC (n := n) c.N) :=
+def core (c : Circuit TC0Gate n) : CNF.Formula (VarTC (n := n) c.N) :=
   List.flatten (List.ofFn fun i : Fin c.N => nodeClauses (n := n) c i)
 
-def sat (c : DAGCircuit TC0Gate n) : CNF.Formula (VarTC (n := n) c.N) :=
+def sat (c : Circuit TC0Gate n) : CNF.Formula (VarTC (n := n) c.N) :=
   core (n := n) c ++
     [ [Lit.pos (VarTC.base (n := n) (N := c.N) (Var.node (n := n) (N := c.N) c.out))] ]
 
@@ -112,7 +114,7 @@ def sat (c : DAGCircuit TC0Gate n) : CNF.Formula (VarTC (n := n) c.N) :=
 A satisfying assignment for `TC0.sat` induced by an input assignment, with canonical threshold
 auxiliaries.
 -/
-def assignmentOf (c : DAGCircuit TC0Gate n) (x : Fin n → Bool) :
+def assignmentOf (c : Circuit TC0Gate n) (x : Fin n → Bool) :
     VarTC (n := n) c.N → Bool
   | Sum.inl v => Tseitin.assignmentOf (n := n) c x v
   | Sum.inr ⟨i, ⟨k, ⟨t, u⟩⟩⟩ =>
@@ -134,7 +136,7 @@ def assignmentOf (c : DAGCircuit TC0Gate n) (x : Fin n → Bool) :
             false
       | _ => false
 
-theorem assignmentOf_satisfies_nodeClauses (c : DAGCircuit TC0Gate n) (x : Fin n → Bool)
+theorem assignmentOf_satisfies_nodeClauses (c : Circuit TC0Gate n) (x : Fin n → Bool)
     (i : Fin c.N) :
     CNF.Formula.Satisfies (nodeClauses (n := n) c i) (assignmentOf (n := n) c x) := by
   classical
@@ -145,11 +147,11 @@ theorem assignmentOf_satisfies_nodeClauses (c : DAGCircuit TC0Gate n) (x : Fin n
     simp [σ, σBase, assignmentOf, VarTC.base]
   cases hnd : c.node i.1 i.2 with
   | input j =>
-      have hEq :
-          σBase (Var.node (n := n) (N := c.N) i) =
-            σBase (Var.input (n := n) (N := c.N) j) := by
-        have hEval := DAG.evalAt_eq_node (d := c.toDAG) (x := x) (i := i.1) (hi := i.2)
-        have : c.toDAG.evalAt x i.1 i.2 = x j := by
+      have hEq : σBase (Var.node (n := n) (N := c.N) i) =
+          σBase (Var.input (n := n) (N := c.N) j) := by
+        have hEval :=
+          CircuitDAG.evalAt_eq_node (d := c.toCircuitDAG) (x := x) (i := i.1) (hi := i.2)
+        have : c.toCircuitDAG.evalAt x i.1 i.2 = x j := by
           simpa [hnd] using hEval
         simpa [σBase, hσBase, Tseitin.assignmentOf, Var.node, Var.input] using this
       have hbase :
@@ -175,8 +177,9 @@ theorem assignmentOf_satisfies_nodeClauses (c : DAGCircuit TC0Gate n) (x : Fin n
       simpa [nodeClauses, hnd] using hlift
   | const b =>
       have hEq : σBase (Var.node (n := n) (N := c.N) i) = b := by
-        have hEval := DAG.evalAt_eq_node (d := c.toDAG) (x := x) (i := i.1) (hi := i.2)
-        have : c.toDAG.evalAt x i.1 i.2 = b := by
+        have hEval :=
+          CircuitDAG.evalAt_eq_node (d := c.toCircuitDAG) (x := x) (i := i.1) (hi := i.2)
+        have : c.toCircuitDAG.evalAt x i.1 i.2 = b := by
           simpa [hnd] using hEval
         simpa [σBase, hσBase, Tseitin.assignmentOf, Var.node] using this
       have hbase :
@@ -203,14 +206,14 @@ theorem assignmentOf_satisfies_nodeClauses (c : DAGCircuit TC0Gate n) (x : Fin n
       | ac0 g0 =>
           let child : Fin _ → Var n c.N :=
             fun j => Var.node (n := n) (N := c.N) (childToN (N := c.N) i (f j))
-          have hEq :
-              σBase (Var.node (n := n) (N := c.N) i) =
-                GateEval.eval (G := AC0Gate) g0 (fun j => σBase (child j)) := by
-            have hEval := DAG.evalAt_eq_node (d := c.toDAG) (x := x) (i := i.1) (hi := i.2)
+          have hEq : σBase (Var.node (n := n) (N := c.N) i) =
+              GateEval.eval (G := AC0Gate) g0 (fun j => σBase (child j)) := by
+            have hEval :=
+              CircuitDAG.evalAt_eq_node (d := c.toCircuitDAG) (x := x) (i := i.1) (hi := i.2)
             have :
-                c.toDAG.evalAt x i.1 i.2 =
+                c.toCircuitDAG.evalAt x i.1 i.2 =
                   GateEval.eval (G := TC0Gate) (TC0Gate.ac0 (n := _) g0)
-                    (fun j => c.toDAG.evalAt x (f j).1 (lt_trans (f j).2 i.2)) := by
+                    (fun j => c.toCircuitDAG.evalAt x (f j).1 (lt_trans (f j).2 i.2)) := by
               simpa [hnd] using hEval
             simpa [σBase, hσBase, Tseitin.assignmentOf, Var.node, child, childToN,
               GateEval_eval_TC0Gate, TC0Gate_eval_ac0] using this
@@ -239,14 +242,14 @@ theorem assignmentOf_satisfies_nodeClauses (c : DAGCircuit TC0Gate n) (x : Fin n
       | thr t =>
           let child : Fin k → Var n c.N :=
             fun j => Var.node (n := n) (N := c.N) (childToN (N := c.N) i (f j))
-          have hEq :
-              σBase (Var.node (n := n) (N := c.N) i) =
-                decide (t ≤ countTrue (fun j => σBase (child j))) := by
-            have hEval := DAG.evalAt_eq_node (d := c.toDAG) (x := x) (i := i.1) (hi := i.2)
+          have hEq : σBase (Var.node (n := n) (N := c.N) i) =
+              decide (t ≤ countTrue (fun j => σBase (child j))) := by
+            have hEval :=
+              CircuitDAG.evalAt_eq_node (d := c.toCircuitDAG) (x := x) (i := i.1) (hi := i.2)
             have :
-                c.toDAG.evalAt x i.1 i.2 =
+                c.toCircuitDAG.evalAt x i.1 i.2 =
                   GateEval.eval (G := TC0Gate) (TC0Gate.thr (n := _) t)
-                    (fun j => c.toDAG.evalAt x (f j).1 (lt_trans (f j).2 i.2)) := by
+                    (fun j => c.toCircuitDAG.evalAt x (f j).1 (lt_trans (f j).2 i.2)) := by
               simpa [hnd] using hEval
             simpa [σBase, hσBase, Tseitin.assignmentOf, Var.node, child, childToN,
               GateEval_eval_TC0Gate, TC0Gate_eval_thr] using this
@@ -285,14 +288,14 @@ theorem assignmentOf_satisfies_nodeClauses (c : DAGCircuit TC0Gate n) (x : Fin n
                     _ σ).2 hthr'
           simpa [nodeClauses, hnd, child] using hlift
 
-theorem assignmentOf_satisfies_core (c : DAGCircuit TC0Gate n) (x : Fin n → Bool) :
+theorem assignmentOf_satisfies_core (c : Circuit TC0Gate n) (x : Fin n → Bool) :
     CNF.Formula.Satisfies (core (n := n) c) (assignmentOf (n := n) c x) := by
   intro cl hcl
   rcases List.mem_flatten.1 hcl with ⟨cs, hcs, hclcs⟩
   rcases List.mem_ofFn.1 hcs with ⟨i, rfl⟩
   exact assignmentOf_satisfies_nodeClauses (n := n) c x i _ hclcs
 
-theorem satisfiable_of_circuitSAT (c : DAGCircuit TC0Gate n) :
+theorem satisfiable_of_circuitSAT (c : Circuit TC0Gate n) :
     Tseitin.CircuitSAT (n := n) c → CNF.Formula.Satisfiable (sat (n := n) c) := by
   rintro ⟨x, hx⟩
   refine ⟨assignmentOf (n := n) c x, ?_⟩
@@ -307,10 +310,10 @@ theorem satisfiable_of_circuitSAT (c : DAGCircuit TC0Gate n) :
         assignmentOf (n := n) c x
             (VarTC.base (n := n) (N := c.N) (Var.node (n := n) (N := c.N) c.out)) =
           true := by
-      simpa [assignmentOf, VarTC.base, Tseitin.assignmentOf, Var.node, DAGCircuit.eval_def] using hx
+      simpa [assignmentOf, VarTC.base, Tseitin.assignmentOf, Var.node, Circuit.eval_def] using hx
     simpa [Lit.eval, this]
 
-theorem circuitSAT_of_satisfiable (c : DAGCircuit TC0Gate n) :
+theorem circuitSAT_of_satisfiable (c : Circuit TC0Gate n) :
     CNF.Formula.Satisfiable (sat (n := n) c) → Tseitin.CircuitSAT (n := n) c := by
   rintro ⟨σ, hσ⟩
   let σBase : Var n c.N → Bool := fun v => σ (VarTC.base (n := n) (N := c.N) v)
@@ -345,7 +348,7 @@ theorem circuitSAT_of_satisfiable (c : DAGCircuit TC0Gate n) :
     exact hcore _ this
   have hnode :
       ∀ i : Nat, ∀ hi : i < c.N,
-        σBase (Var.node (n := n) (N := c.N) ⟨i, hi⟩) = c.toDAG.evalAt x i hi := by
+        σBase (Var.node (n := n) (N := c.N) ⟨i, hi⟩) = c.toCircuitDAG.evalAt x i hi := by
     intro i
     refine Nat.strong_induction_on i ?_
     intro i ih hi
@@ -369,7 +372,7 @@ theorem circuitSAT_of_satisfiable (c : DAGCircuit TC0Gate n) :
             (v := Var.node (n := n) (N := c.N) ⟨i, hi⟩) (w := Var.input (n := n) (N := c.N) j) hbase
         have hxj : σBase (Var.node (n := n) (N := c.N) ⟨i, hi⟩) = x j := by
           simpa [x] using heq
-        simpa [DAG.evalAt_eq_node (d := c.toDAG) (x := x), hnd] using hxj
+        simpa [CircuitDAG.evalAt_eq_node (d := c.toCircuitDAG) (x := x), hnd] using hxj
     | const b =>
         have hbase :
             CNF.Formula.Satisfies
@@ -383,7 +386,7 @@ theorem circuitSAT_of_satisfiable (c : DAGCircuit TC0Gate n) :
           exact
             satisfies_constClauses (n := n) (σ := σBase)
               (v := Var.node (n := n) (N := c.N) ⟨i, hi⟩) (b := b) hbase
-        simp [DAG.evalAt_eq_node (d := c.toDAG) (x := x), hnd, hb]
+        simp [CircuitDAG.evalAt_eq_node (d := c.toCircuitDAG) (x := x), hnd, hb]
       | gate g f =>
           rename_i k
           cases g with
@@ -406,23 +409,24 @@ theorem circuitSAT_of_satisfiable (c : DAGCircuit TC0Gate n) :
                 (child := child) (out := Var.node (n := n) (N := c.N) ⟨i, hi⟩)).1 hbase
             have hchild :
                 (j : Fin k) →
-                  σBase (child j) = c.toDAG.evalAt x (f j).1 (lt_trans (f j).2 hi) := by
+                  σBase (child j) = c.toCircuitDAG.evalAt x (f j).1 (lt_trans (f j).2 hi) := by
               intro j
               exact ih (f j).1 (f j).2 (lt_trans (f j).2 hi)
             have hfun :
                 (fun j : Fin k => σBase (child j)) =
-                  fun j : Fin k => c.toDAG.evalAt x (f j).1 (lt_trans (f j).2 hi) := by
+                  fun j : Fin k => c.toCircuitDAG.evalAt x (f j).1 (lt_trans (f j).2 hi) := by
               funext j
               exact hchild j
-            have hEval := DAG.evalAt_eq_node (d := c.toDAG) (x := x) (i := i) (hi := hi)
+            have hEval :=
+              CircuitDAG.evalAt_eq_node (d := c.toCircuitDAG) (x := x) (i := i) (hi := hi)
             calc
               σBase (Var.node (n := n) (N := c.N) ⟨i, hi⟩)
                   = GateEval.eval (G := AC0Gate) g0 fun j => σBase (child j) := hgate
               _ =
                   GateEval.eval (G := AC0Gate) g0 fun j =>
-                    c.toDAG.evalAt x (f j).1 (lt_trans (f j).2 hi) := by
+                    c.toCircuitDAG.evalAt x (f j).1 (lt_trans (f j).2 hi) := by
                       simp [hfun]
-              _ = c.toDAG.evalAt x i hi := by
+              _ = c.toCircuitDAG.evalAt x i hi := by
                     simpa [hnd, GateEval_eval_TC0Gate, TC0Gate_eval_ac0] using hEval.symm
           | thr t =>
               let child : Fin k → Var n c.N :=
@@ -461,33 +465,34 @@ theorem circuitSAT_of_satisfiable (c : DAGCircuit TC0Gate n) :
                 simpa [houtVar, hchildVar] using hsound
               have hchild :
                   (j : Fin k) →
-                    σBase (child j) = c.toDAG.evalAt x (f j).1 (lt_trans (f j).2 hi) := by
+                    σBase (child j) = c.toCircuitDAG.evalAt x (f j).1 (lt_trans (f j).2 hi) := by
                 intro j
                 exact ih (f j).1 (f j).2 (lt_trans (f j).2 hi)
               have hfun :
                   (fun j : Fin k => σBase (child j)) =
-                    fun j : Fin k => c.toDAG.evalAt x (f j).1 (lt_trans (f j).2 hi) := by
+                    fun j : Fin k => c.toCircuitDAG.evalAt x (f j).1 (lt_trans (f j).2 hi) := by
                 funext j
                 exact hchild j
-              have hEval := DAG.evalAt_eq_node (d := c.toDAG) (x := x) (i := i) (hi := hi)
+              have hEval :=
+              CircuitDAG.evalAt_eq_node (d := c.toCircuitDAG) (x := x) (i := i) (hi := hi)
               calc
                 σBase (Var.node (n := n) (N := c.N) ⟨i, hi⟩)
                     = decide (t ≤ countTrue (fun j => σBase (child j))) := hgate
                 _ =
                     decide (t ≤
                       countTrue fun j =>
-                        c.toDAG.evalAt x (f j).1 (lt_trans (f j).2 hi)) := by
+                        c.toCircuitDAG.evalAt x (f j).1 (lt_trans (f j).2 hi)) := by
                       simp [hfun]
-                _ = c.toDAG.evalAt x i hi := by
+                _ = c.toCircuitDAG.evalAt x i hi := by
                       simpa [hnd, GateEval_eval_TC0Gate, TC0Gate_eval_thr] using hEval.symm
   refine ⟨x, ?_⟩
   have houtEval : c.eval x = σBase (Var.node (n := n) (N := c.N) c.out) := by
-    simpa [DAGCircuit.eval_def, Var.node, σBase] using (hnode c.out.1 c.out.2).symm
+    simpa [Circuit.eval_def, Var.node, σBase] using (hnode c.out.1 c.out.2).symm
   calc
     c.eval x = σBase (Var.node (n := n) (N := c.N) c.out) := houtEval
     _ = true := hout'
 
-theorem equisatisfiable (c : DAGCircuit TC0Gate n) :
+theorem equisatisfiable (c : Circuit TC0Gate n) :
     CNF.Formula.Satisfiable (sat (n := n) c) ↔ Tseitin.CircuitSAT (n := n) c := by
   constructor
   · exact circuitSAT_of_satisfiable (n := n) c

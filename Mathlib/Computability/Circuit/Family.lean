@@ -5,20 +5,23 @@ Authors: Dennj Osele
 -/
 module
 
+public import Mathlib.Computability.Gate
 public import Mathlib.Computability.Circuit.Complexity
 public import Mathlib.Algebra.Polynomial.Basic
 public import Mathlib.Algebra.Polynomial.Eval.Defs
 
 /-!
-# Circuit families
+# Families of circuits
 
-This file defines non-uniform circuit families indexed by input length, together with basic
-size/depth bounds.
+This file defines non-uniform families of circuits (DAGs) indexed by input length, together with
+basic depth/size bounds.
 -/
 
 @[expose] public section
 
 namespace Computability
+
+open Gate
 
 namespace Circuit
 
@@ -30,16 +33,17 @@ abbrev Family (G : Nat → Type) : Type :=
 length `n` and input vector `x`. -/
 def Computes {G : Nat → Type} [GateEval G] (C : Family G) (f : ∀ n : Nat, (Fin n → Bool) → Bool) :
     Prop :=
-  ∀ n x, eval (C n) x = f n x
+  ∀ n x, (C n).eval x = f n x
 
 /-- The family has constant depth if there is a uniform bound on `depth (C n)`. -/
 def HasConstDepth {G : Nat → Type} (C : Family G) : Prop :=
-  ∃ d : Nat, ∀ n : Nat, depth (C n) ≤ d
+  ∃ d : Nat, ∀ n : Nat, Circuit.depth (C n) ≤ d
 
 /-- The family has polynomial size if `size (C n)` is bounded by some polynomial in `n`. -/
 def HasPolySize {G : Nat → Type} (C : Family G) : Prop :=
-  ∃ p : Polynomial Nat, ∀ n : Nat, size (C n) ≤ p.eval n
+  ∃ p : Polynomial Nat, ∀ n : Nat, Circuit.size (C n) ≤ p.eval n
 
 end Circuit
 
 end Computability
+

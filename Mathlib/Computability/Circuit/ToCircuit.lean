@@ -5,53 +5,56 @@ Authors: Dennj Osele
 -/
 module
 
+public import Mathlib.Computability.Gate
+public import Mathlib.Computability.Formula.Basic
+public import Mathlib.Computability.Formula.Complexity
 public import Mathlib.Computability.Circuit.Basic
 public import Mathlib.Computability.Circuit.Complexity
-public import Mathlib.Computability.Circuit.DAG
-public import Mathlib.Computability.Circuit.DAGComplexity
 import Mathlib.Algebra.BigOperators.Fin
 
 /-!
-# Tree circuits to DAG circuits
+# Formulas to circuits
 
-This file provides a translation from tree circuits (`Circuit G n`) to topologically indexed DAG
-circuits (`DAGCircuit G n`), together with evaluation correctness.
+This file provides a translation from tree formulas (`Formula G n`) to topologically indexed DAG
+circuits (`Circuit G n`), together with evaluation correctness.
 
 The translation is intentionally simple: it flattens the tree into a DAG by allocating a fresh node
 for every subcircuit (so it does **not** attempt to identify common subcircuits). This is enough to
-connect the tree syntax to the DAG representation and can later be refined by adding sharing.
+connect the formula syntax to the circuit representation and can later be refined by adding sharing.
 -/
 
 @[expose] public section
 
 namespace Computability
 
-namespace Circuit
+open Gate
 
-open DAG
+namespace Formula
+
+open CircuitDAG
 
 open scoped BigOperators
 
 variable {G : Nat → Type} {n : Nat}
 
-namespace ToDAG
+namespace ToCircuit
 
-/-- Result of building a circuit into a DAG starting from an existing prefix DAG `d`. -/
-structure BuildResult (d : DAG G n) where
-  dag : DAG G n
-  pref : DAG.Prefix d dag
+/-- Result of building a formula into a DAG starting from an existing prefix DAG `d`. -/
+structure BuildResult (d : CircuitDAG G n) where
+  dag : CircuitDAG G n
+  pref : CircuitDAG.Prefix d dag
   out : Fin dag.N
 
 /-- Result of building the children of a gate into a DAG
 starting from an existing prefix DAG `d`. -/
-structure ChildrenResult (d : DAG G n) (k : Nat) where
-  dag : DAG G n
-  pref : DAG.Prefix d dag
+structure ChildrenResult (d : CircuitDAG G n) (k : Nat) where
+  dag : CircuitDAG G n
+  pref : CircuitDAG.Prefix d dag
   out : Fin k → Fin dag.N
 
 namespace BuildResult
 
-theorem le {d : DAG G n} (r : BuildResult (G := G) (n := n) d) : d.N ≤ r.dag.N :=
+theorem le {d : CircuitDAG G n} (r : BuildResult (G := G) (n := n) d) : d.N ≤ r.dag.N :=
   r.pref.le
 
 end BuildResult
@@ -59,57 +62,57 @@ end BuildResult
 /-- Build `k` children sequentially, threading a DAG through the computations. -/
 def buildChildren :
     ∀ {k : Nat},
-      (Fin k → ∀ d : DAG G n, BuildResult (G := G) (n := n) d) →
-        ∀ d : DAG G n, ChildrenResult (G := G) (n := n) d k
+      (Fin k → ∀ d : CircuitDAG G n, BuildResult (G := G) (n := n) d) →
+        ∀ d : CircuitDAG G n, ChildrenResult (G := G) (n := n) d k
   | 0, _, d =>
-      ⟨d, DAG.Prefix.refl d, Fin.elim0⟩
+      ⟨d, CircuitDAG.Prefix.refl d, Fin.elim0⟩
   | k + 1, childBuild, d =>
       let r0 := childBuild 0 d
       let rt := buildChildren (k := k) (fun i => childBuild i.succ) r0.dag
       let out0 : Fin rt.dag.N := Fin.castLE rt.pref.le r0.out
-      ⟨rt.dag, DAG.Prefix.trans r0.pref rt.pref, Fin.cons out0 rt.out⟩
+      ⟨rt.dag, CircuitDAG.Prefix.trans r0.pref rt.pref, Fin.cons out0 rt.out⟩
 
-/-- Build a tree circuit into a DAG, allocating a fresh node for each subcircuit. -/
-def buildFrom (c : Circuit G n) : ∀ d : DAG G n, BuildResult (G := G) (n := n) d :=
+/-- Build a tree formula into a DAG, allocating a fresh node for each subcircuit. -/
+def buildFrom (c : Formula G n) : ∀ d : CircuitDAG G n, BuildResult (G := G) (n := n) d :=
   fun d =>
     match c with
     | .input i =>
         let dag := d.snoc (.input i)
-        ⟨dag, DAG.Prefix.snoc (d := d) (nd := .input i), Fin.last d.N⟩
+        ⟨dag, CircuitDAG.Prefix.snoc (d := d) (nd := .input i), Fin.last d.N⟩
     | .const b =>
         let dag := d.snoc (.const b)
-        ⟨dag, DAG.Prefix.snoc (d := d) (nd := .const b), Fin.last d.N⟩
+        ⟨dag, CircuitDAG.Prefix.snoc (d := d) (nd := .const b), Fin.last d.N⟩
     | .gate (k := k) g f =>
         let ch := buildChildren (G := G) (n := n) (k := k) (fun i => buildFrom (f i)) d
         let dagKids := ch.dag
-        let nd : DAGNode G n dagKids.N := .gate g ch.out
+        let nd : CircuitNode G n dagKids.N := .gate g ch.out
         let dag := dagKids.snoc nd
-        let p := DAG.Prefix.trans ch.pref (DAG.Prefix.snoc (d := dagKids) (nd := nd))
+        let p := CircuitDAG.Prefix.trans ch.pref (CircuitDAG.Prefix.snoc (d := dagKids) (nd := nd))
         ⟨dag, p, Fin.last dagKids.N⟩
 
-lemma buildFrom_input (i : Fin n) (d : DAG G n) :
-    buildFrom (G := G) (n := n) (Circuit.input i) d =
-      ⟨d.snoc (.input i), DAG.Prefix.snoc (d := d) (nd := .input i), Fin.last d.N⟩ :=
+lemma buildFrom_input (i : Fin n) (d : CircuitDAG G n) :
+    buildFrom (G := G) (n := n) (Formula.input i) d =
+      ⟨d.snoc (.input i), CircuitDAG.Prefix.snoc (d := d) (nd := .input i), Fin.last d.N⟩ :=
   rfl
 
-lemma buildFrom_const (b : Bool) (d : DAG G n) :
-    buildFrom (G := G) (n := n) (Circuit.const (G := G) (n := n) b) d =
-      ⟨d.snoc (.const b), DAG.Prefix.snoc (d := d) (nd := .const b), Fin.last d.N⟩ :=
+lemma buildFrom_const (b : Bool) (d : CircuitDAG G n) :
+    buildFrom (G := G) (n := n) (Formula.const (G := G) (n := n) b) d =
+      ⟨d.snoc (.const b), CircuitDAG.Prefix.snoc (d := d) (nd := .const b), Fin.last d.N⟩ :=
   rfl
 
-lemma buildFrom_gate {k : Nat} (g : G k) (f : Fin k → Circuit G n) (d : DAG G n) :
-    buildFrom (G := G) (n := n) (Circuit.gate (G := G) (n := n) (k := k) g f) d =
+lemma buildFrom_gate {k : Nat} (g : G k) (f : Fin k → Formula G n) (d : CircuitDAG G n) :
+    buildFrom (G := G) (n := n) (Formula.gate (G := G) (n := n) (k := k) g f) d =
       let ch :=
         buildChildren (G := G) (n := n) (k := k) (fun i => buildFrom (G := G) (n := n) (f i)) d
       let dagKids := ch.dag
-      let nd : DAGNode G n dagKids.N := .gate g ch.out
+      let nd : CircuitNode G n dagKids.N := .gate g ch.out
       let dag := dagKids.snoc nd
-      let p := DAG.Prefix.trans ch.pref (DAG.Prefix.snoc (d := dagKids) (nd := nd))
+      let p := CircuitDAG.Prefix.trans ch.pref (CircuitDAG.Prefix.snoc (d := dagKids) (nd := nd))
       ⟨dag, p, Fin.last dagKids.N⟩ :=
   rfl
 
-/-- Convenience wrapper: build a circuit from a given prefix DAG. -/
-def build (d : DAG G n) (c : Circuit G n) : BuildResult (G := G) (n := n) d :=
+/-- Convenience wrapper: build a formula from a given prefix DAG. -/
+def build (d : CircuitDAG G n) (c : Formula G n) : BuildResult (G := G) (n := n) d :=
   buildFrom (G := G) (n := n) c d
 
 section Correctness
@@ -117,7 +120,7 @@ section Correctness
 variable [GateEval G]
 
 theorem buildChildren_correct {k : Nat}
-    (childBuild : Fin k → ∀ d : DAG G n, BuildResult (G := G) (n := n) d)
+    (childBuild : Fin k → ∀ d : CircuitDAG G n, BuildResult (G := G) (n := n) d)
     (val : Fin k → (Fin n → Bool) → Bool)
     (hval : ∀ i d x, let r := childBuild i d; r.dag.evalAt x r.out.1 r.out.2 = val i x) :
     ∀ d x i,
@@ -139,7 +142,7 @@ theorem buildChildren_correct {k : Nat}
               rt.dag.evalAt x r0.out.1 (lt_of_lt_of_le r0.out.2 rt.pref.le) =
                 r0.dag.evalAt x r0.out.1 r0.out.2 := by
             simpa using
-              (DAG.evalAt_eq_of_prefix (d₀ := r0.dag) (d₁ := rt.dag) (h := rt.pref) (x := x)
+              (CircuitDAG.evalAt_eq_of_prefix (d₀ := r0.dag) (d₁ := rt.dag) (h := rt.pref) (x := x)
                 (i := r0.out.1) (hi := r0.out.2))
           -- `buildChildren` returns `Fin.cons` for the output map
           simpa [buildChildren, r0, rt] using hpres.trans (hval 0 d x)
@@ -152,7 +155,7 @@ theorem buildChildren_correct {k : Nat}
               (d := r0.dag) (x := x) (i := j)
           simpa [buildChildren, r0, rt] using ht
 
-theorem build_correct (c : Circuit G n) :
+theorem build_correct (c : Formula G n) :
     ∀ d x,
       let r := build (G := G) (n := n) d c
       r.dag.evalAt x r.out.1 r.out.2 = eval c x := by
@@ -161,10 +164,10 @@ theorem build_correct (c : Circuit G n) :
   induction c with
   | input i =>
       intro d x
-      simp [build, buildFrom_input, DAG.evalAt_snoc_last]
+      simp [build, buildFrom_input, CircuitDAG.evalAt_snoc_last]
   | const b =>
       intro d x
-      simp [build, buildFrom_const, DAG.evalAt_snoc_last]
+      simp [build, buildFrom_const, CircuitDAG.evalAt_snoc_last]
   | gate g f ih =>
       intro d x
       -- build children, then add the gate node
@@ -182,21 +185,21 @@ theorem build_correct (c : Circuit G n) :
             d x j
         simpa [ch] using this
       -- the new last node evaluates to the gate semantics applied to child values
-      simp [build, buildFrom_gate, ch, DAG.evalAt_snoc_last, hchildren]
+      simp [build, buildFrom_gate, ch, CircuitDAG.evalAt_snoc_last, hchildren]
 
 end Correctness
 
-end ToDAG
+end ToCircuit
 
-namespace ToDAG
+namespace ToCircuit
 
 /-! ## Size and depth preservation -/
 
 theorem buildChildren_N {k : Nat}
-    (childBuild : Fin k → ∀ d : DAG G n, BuildResult (G := G) (n := n) d)
+    (childBuild : Fin k → ∀ d : CircuitDAG G n, BuildResult (G := G) (n := n) d)
     (inc : Fin k → Nat)
     (hinc : ∀ i d, let r := childBuild i d; r.dag.N = d.N + inc i) :
-    ∀ d : DAG G n,
+    ∀ d : CircuitDAG G n,
       let ch := buildChildren (G := G) (n := n) (k := k) childBuild d
       ch.dag.N = d.N + ∑ i : Fin k, inc i := by
   classical
@@ -228,16 +231,16 @@ theorem buildChildren_N {k : Nat}
       -- Note: `buildChildren` returns `rt.dag` as the final DAG.
       simp [buildChildren, r0, rt, hrt, hr0, hsum, Nat.add_assoc]
 
-theorem buildFrom_N (c : Circuit G n) :
-    ∀ d : DAG G n, let r := buildFrom (G := G) (n := n) c d; r.dag.N = d.N + size c := by
+theorem buildFrom_N (c : Formula G n) :
+    ∀ d : CircuitDAG G n, let r := buildFrom (G := G) (n := n) c d; r.dag.N = d.N + size c := by
   classical
   induction c with
   | input i =>
       intro d
-      simp [buildFrom_input, size, DAG.snoc_N]
+      simp [buildFrom_input, size, CircuitDAG.snoc_N]
   | const b =>
       intro d
-      simp [buildFrom_const, size, DAG.snoc_N]
+      simp [buildFrom_const, size, CircuitDAG.snoc_N]
   | gate g f ih =>
       intro d
       set ch :=
@@ -256,10 +259,10 @@ theorem buildFrom_N (c : Circuit G n) :
               (childBuild := fun i => buildFrom (G := G) (n := n) (f i))
               (inc := fun i => size (f i)) hinc d)
       -- After building all children, we append one more gate node.
-      simp [buildFrom_gate, ch, size, DAG.snoc_N, hch, Nat.add_left_comm, Nat.add_comm]
+      simp [buildFrom_gate, ch, size, CircuitDAG.snoc_N, hch, Nat.add_left_comm, Nat.add_comm]
 
 theorem buildChildren_depthAt {k : Nat}
-    (childBuild : Fin k → ∀ d : DAG G n, BuildResult (G := G) (n := n) d)
+    (childBuild : Fin k → ∀ d : CircuitDAG G n, BuildResult (G := G) (n := n) d)
     (val : Fin k → Nat)
     (hval : ∀ i d, let r := childBuild i d; r.dag.depthAt r.out.1 r.out.2 = val i) :
     ∀ d i,
@@ -281,7 +284,7 @@ theorem buildChildren_depthAt {k : Nat}
               rt.dag.depthAt r0.out.1 (lt_of_lt_of_le r0.out.2 rt.pref.le) =
                 r0.dag.depthAt r0.out.1 r0.out.2 := by
             simpa using
-              (DAG.depthAt_eq_of_prefix (d₀ := r0.dag) (d₁ := rt.dag) (h := rt.pref)
+              (CircuitDAG.depthAt_eq_of_prefix (d₀ := r0.dag) (d₁ := rt.dag) (h := rt.pref)
                 (i := r0.out.1) (hi := r0.out.2))
           simpa [buildChildren, r0, rt] using hpres.trans (hval 0 d)
       | succ j =>
@@ -293,18 +296,20 @@ theorem buildChildren_depthAt {k : Nat}
               (d := r0.dag) (i := j)
           simpa [buildChildren, r0, rt] using ht
 
-theorem buildFrom_depthAt (c : Circuit G n) :
-    ∀ d : DAG G n,
+theorem buildFrom_depthAt (c : Formula G n) :
+    ∀ d : CircuitDAG G n,
       let r := buildFrom (G := G) (n := n) c d
       r.dag.depthAt r.out.1 r.out.2 = depth c := by
   classical
   induction c with
   | input i =>
       intro d
-      simpa [buildFrom_input, depth] using (DAG.depthAt_snoc_last (d := d) (nd := DAGNode.input i))
+      simpa [buildFrom_input, depth] using
+        CircuitDAG.depthAt_snoc_last (d := d) (nd := CircuitNode.input i)
   | const b =>
       intro d
-      simpa [buildFrom_const, depth] using (DAG.depthAt_snoc_last (d := d) (nd := DAGNode.const b))
+      simpa [buildFrom_const, depth] using
+        CircuitDAG.depthAt_snoc_last (d := d) (nd := CircuitNode.const b)
   | gate g f ih =>
       intro d
       set ch :=
@@ -328,42 +333,43 @@ theorem buildFrom_depthAt (c : Circuit G n) :
         intro j hj
         exact hchildren j
       -- Unfold `buildFrom` and reduce via `depthAt_snoc_last`.
-      simp [buildFrom_gate, ch, depth, DAG.depthAt_snoc_last, hsup, -DAG.depthAt_def]
+      simp [buildFrom_gate, ch, depth, CircuitDAG.depthAt_snoc_last, hsup, -CircuitDAG.depthAt_def]
 
-theorem build_N (d : DAG G n) (c : Circuit G n) :
+theorem build_N (d : CircuitDAG G n) (c : Formula G n) :
     let r := build (G := G) (n := n) d c
     r.dag.N = d.N + size c := by
   simpa [build] using (buildFrom_N (G := G) (n := n) (c := c) d)
 
-theorem build_depthAt (d : DAG G n) (c : Circuit G n) :
+theorem build_depthAt (d : CircuitDAG G n) (c : Formula G n) :
     let r := build (G := G) (n := n) d c
     r.dag.depthAt r.out.1 r.out.2 = depth c := by
   simpa [build] using (buildFrom_depthAt (G := G) (n := n) (c := c) d)
 
-end ToDAG
+end ToCircuit
 
-/-- Translate a tree circuit to a DAG circuit. -/
-def toDAG (c : Circuit G n) : DAGCircuit G n :=
-  let r := ToDAG.build (G := G) (n := n) (d := DAG.empty G n) c
+/-- Translate a tree formula to a DAG circuit. -/
+def toCircuit (c : Formula G n) : Circuit G n :=
+  let r := ToCircuit.build (G := G) (n := n) (d := CircuitDAG.empty G n) c
   { N := r.dag.N
     node := r.dag.node
     out := r.out }
 
-theorem eval_toDAG [GateEval G] (c : Circuit G n) (x : Fin n → Bool) :
-    (toDAG (G := G) (n := n) c).eval x = eval c x := by
-  -- unfold `toDAG` and apply `build_correct` from the empty prefix
-  simp [toDAG, DAGCircuit.eval, ToDAG.build_correct (G := G) (n := n) (c := c) (d := DAG.empty G n)]
+theorem eval_toCircuit [GateEval G] (c : Formula G n) (x : Fin n → Bool) :
+    (toCircuit (G := G) (n := n) c).eval x = eval c x := by
+  -- unfold `toCircuit` and apply `build_correct` from the empty prefix
+  simp [toCircuit, Circuit.eval,
+    ToCircuit.build_correct (G := G) (n := n) (c := c) (d := CircuitDAG.empty G n)]
 
-theorem size_toDAG (c : Circuit G n) : (toDAG (G := G) (n := n) c).size = size c := by
-  -- `toDAG` allocates exactly one node per syntax-tree node.
-  have h := ToDAG.build_N (G := G) (n := n) (d := DAG.empty G n) (c := c)
-  simpa [toDAG, DAGCircuit.size, DAG.empty] using h
+theorem size_toCircuit (c : Formula G n) : (toCircuit (G := G) (n := n) c).size = size c := by
+  -- `toCircuit` allocates exactly one node per syntax-tree node.
+  have h := ToCircuit.build_N (G := G) (n := n) (d := CircuitDAG.empty G n) (c := c)
+  simpa [toCircuit, Circuit.size, CircuitDAG.empty] using h
 
-theorem depth_toDAG (c : Circuit G n) :
-    DAGCircuit.depth (toDAG (G := G) (n := n) c) = depth c := by
-  have h := ToDAG.build_depthAt (G := G) (n := n) (d := DAG.empty G n) (c := c)
-  simpa [toDAG, DAGCircuit.depth] using h
+theorem depth_toCircuit (c : Formula G n) :
+    Circuit.depth (toCircuit (G := G) (n := n) c) = depth c := by
+  have h := ToCircuit.build_depthAt (G := G) (n := n) (d := CircuitDAG.empty G n) (c := c)
+  simpa [toCircuit, Circuit.depth] using h
 
-end Circuit
+end Formula
 
 end Computability

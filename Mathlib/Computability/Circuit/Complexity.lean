@@ -7,80 +7,237 @@ module
 
 public import Mathlib.Computability.Circuit.Basic
 public import Mathlib.Data.Finset.Lattice.Fold
-public import Mathlib.Algebra.BigOperators.Group.Finset.Defs
 
 /-!
-# Syntactic complexity measures for circuits
+# Complexity measures for circuits
 
-This file defines the basic measures `size` and `depth` for syntax-tree circuits.
+This file defines a depth measure for circuits (DAGs with explicit sharing).
+
+The key idea is the same as for evaluation: because nodes are topologically indexed, we can compute
+depths by simple recursion over the prefix length.
 -/
 
 @[expose] public section
 
 namespace Computability
 
-namespace Circuit
-
-open scoped BigOperators
-
 variable {G : Nat → Type} {n : Nat}
 
-/-- Syntactic circuit size, counting all nodes (`input`, `const`, and `gate`). -/
-def size : Circuit G n → Nat
-  | .input _ => 1
-  | .const _ => 1
-  | .gate (k := k) _ f => (∑ i : Fin k, size (f i)) + 1
+namespace CircuitDAG
 
-/-- Syntactic circuit depth. Inputs and constants have depth `0`. A gate increases depth by `1`
-above the maximum depth of its children (with `0` for a nullary gate). -/
-def depth : Circuit G n → Nat
-  | .input _ => 0
-  | .const _ => 0
-  | .gate (k := k) _ f => (Finset.sup Finset.univ fun i : Fin k => depth (f i)) + 1
+/-- Compute the depth of the first `m` nodes of a DAG, producing a vector of naturals of length `m`.
 
-@[simp] theorem size_input (i : Fin n) : size (input (G := G) i) = 1 :=
+Inputs and constants have depth `0`. A gate has depth `1 + max(depth(children))` (with `0` for a
+nullary gate). -/
+def depthVec (d : CircuitDAG G n) : (m : Nat) → (hm : m ≤ d.N) → Fin m → Nat
+  | 0, _ => Fin.elim0
+  | m + 1, hm =>
+      let ds := depthVec d m (le_trans (Nat.le_succ m) hm)
+      let nd := d.node m (lt_of_lt_of_le (Nat.lt_succ_self m) hm)
+      let v : Nat :=
+        match nd with
+        | .input _ => 0
+        | .const _ => 0
+        | .gate (k := k) _ f =>
+            (Finset.sup (Finset.univ : Finset (Fin k)) fun i : Fin k => ds (f i)) + 1
+      Fin.snoc ds v
+
+/-! ## Basic lemmas -/
+
+/-- Proof-irrelevance for the `m ≤ N` argument of `depthVec`. -/
+theorem depthVec_congr_hm (d : CircuitDAG G n) (m : Nat) {hm₁ hm₂ : m ≤ d.N} :
+    d.depthVec m hm₁ = d.depthVec m hm₂ := by
+  cases Subsingleton.elim hm₁ hm₂
   rfl
 
-@[simp] theorem size_const (b : Bool) : size (const (G := G) (n := n) b) = 1 :=
+/-- Increasing the prefix length of `depthVec` does not change earlier entries. -/
+theorem depthVec_castLE (d : CircuitDAG G n) (m : Nat) (hm : m ≤ d.N) :
+    ∀ m' (hm' : m' ≤ d.N) (hmm' : m ≤ m') (i : Fin m),
+      d.depthVec m' hm' (Fin.castLE hmm' i) = d.depthVec m hm i := by
+  intro m' hm' hmm' i
+  obtain ⟨t, rfl⟩ := Nat.exists_eq_add_of_le hmm'
+  have aux :
+      ∀ t (hm_t : m + t ≤ d.N),
+        d.depthVec (m + t) hm_t (Fin.castAdd t i) = d.depthVec m hm i := by
+    intro t hm_t
+    induction t with
+    | zero =>
+        simp [depthVec_congr_hm (d := d) (m := m) (hm₁ := hm_t) (hm₂ := hm)]
+    | succ t ih =>
+        have hm_succ : m + t + 1 ≤ d.N := by
+          simpa [Nat.add_assoc] using hm_t
+        have hm_prev : m + t ≤ d.N :=
+          le_trans (Nat.le_succ (m + t)) hm_succ
+        have hcastSucc :
+            (Fin.castAdd (t + 1) i : Fin (m + t + 1)) =
+              Fin.castSucc (Fin.castAdd t i) := by
+          simpa using (Fin.castSucc_castAdd (m := t) (i := i)).symm
+        calc
+          d.depthVec (m + t + 1) hm_succ (Fin.castAdd (t + 1) i)
+              = d.depthVec (m + t + 1) hm_succ (Fin.castSucc (Fin.castAdd t i)) := by
+                  simp [hcastSucc]
+          _ = d.depthVec (m + t) hm_prev (Fin.castAdd t i) := by
+                simp [depthVec]
+          _ = d.depthVec m hm i := ih hm_prev
+  have hcast : (Fin.castLE hmm' i : Fin (m + t)) = Fin.castAdd t i := by
+    ext
+    rfl
+  simpa [hcast] using aux t hm'
+
+/-- Depth of a node at index `i`. -/
+def depthAt (d : CircuitDAG G n) (i : Nat) (hi : i < d.N) : Nat :=
+  d.depthVec d.N le_rfl ⟨i, hi⟩
+
+@[simp] theorem depthAt_def (d : CircuitDAG G n) (i : Nat) (hi : i < d.N) :
+    d.depthAt i hi = d.depthVec d.N le_rfl ⟨i, hi⟩ :=
   rfl
 
-@[simp] theorem depth_input (i : Fin n) : depth (input (G := G) i) = 0 :=
+/-- Unfold `depthAt` at a node by looking at the node label. -/
+theorem depthAt_eq_node (d : CircuitDAG G n) {i : Nat} (hi : i < d.N) :
+    d.depthAt i hi =
+      match d.node i hi with
+      | .input _ => 0
+      | .const _ => 0
+      | .gate (k := k) _ f =>
+          (Finset.sup (Finset.univ : Finset (Fin k)) fun j : Fin k =>
+                d.depthAt (f j).1 (lt_trans (f j).2 hi)) +
+            1 := by
+  -- Reduce to evaluation at prefix length `i+1`.
+  have hm : i + 1 ≤ d.N := Nat.succ_le_of_lt hi
+  have hcast : (Fin.castLE hm (Fin.last i) : Fin d.N) = ⟨i, hi⟩ := by
+    ext
+    rfl
+  have heq :
+      d.depthVec d.N le_rfl ⟨i, hi⟩ = d.depthVec (i + 1) hm (Fin.last i) := by
+    calc
+      d.depthVec d.N le_rfl ⟨i, hi⟩
+          = d.depthVec d.N le_rfl (Fin.castLE hm (Fin.last i)) := by
+              simp [hcast]
+      _ = d.depthVec (i + 1) hm (Fin.last i) := by
+          simpa using
+            (d.depthVec_castLE (m := i + 1) (hm := hm) d.N le_rfl hm (Fin.last i))
+  -- Unfold one step of `depthVec` at length `i+1`. The `node` proof is propositionally irrelevant.
+  have hi0 : i < d.N := lt_of_lt_of_le (Nat.lt_succ_self i) hm
+  have hi0_eq : hi0 = hi := Subsingleton.elim _ _
+  cases hi0_eq
+  cases hnd : d.node i hi with
+  | input j =>
+      simpa [depthAt, depthVec, hnd] using heq
+  | const b =>
+      simpa [depthAt, depthVec, hnd] using heq
+  | gate g f =>
+      have hchild :
+          (j : Fin _) →
+            d.depthVec i (le_trans (Nat.le_succ i) hm) (f j) =
+              d.depthAt (f j).1 (lt_trans (f j).2 hi) := by
+        intro j
+        have hm0 : i ≤ d.N := le_trans (Nat.le_succ i) hm
+        have hcast0 :
+            (Fin.castLE hm0 (f j) : Fin d.N) = ⟨(f j).1, lt_trans (f j).2 hi⟩ := by
+          ext
+          rfl
+        have :=
+          d.depthVec_castLE (m := i) (hm := hm0) d.N le_rfl hm0 (f j)
+        simpa [depthAt, hcast0] using this.symm
+      simpa [depthAt, depthVec, hnd, hchild] using heq
+
+/-- Depth is stable under prefix extension. -/
+theorem depthAt_eq_of_prefix {d₀ d₁ : CircuitDAG G n} (h : Prefix (G := G) (n := n) d₀ d₁)
+    (i : Nat) (hi : i < d₀.N) :
+    d₁.depthAt i (lt_of_lt_of_le hi h.le) = d₀.depthAt i hi := by
+  classical
+  revert hi
+  refine Nat.strong_induction_on i ?_
+  intro i ih hi
+  have hi1 : i < d₁.N := lt_of_lt_of_le hi h.le
+  have hnode : d₁.node i hi1 = d₀.node i hi := by
+    simpa using h.node_eq i hi
+  -- Unfold `depthAt` on both sides and use the induction hypothesis for children.
+  cases hnd : d₀.node i hi with
+  | input j =>
+      -- `d₀.node i hi = input j`
+      -- and `d₁.node i hi1 = input j` by prefix agreement.
+      rw [depthAt_eq_node (d := d₀) (hi := hi)]
+      rw [depthAt_eq_node (d := d₁) (hi := hi1)]
+      simp [hnode, hnd]
+  | const b =>
+      rw [depthAt_eq_node (d := d₀) (hi := hi)]
+      rw [depthAt_eq_node (d := d₁) (hi := hi1)]
+      simp [hnode, hnd]
+  | gate g f =>
+      rw [depthAt_eq_node (d := d₀) (hi := hi)]
+      rw [depthAt_eq_node (d := d₁) (hi := hi1)]
+      have hchild :
+          ∀ j : Fin _,
+            d₁.depthAt (f j).1 (lt_trans (f j).2 hi1) = d₀.depthAt (f j).1 (lt_trans (f j).2 hi) :=
+        by
+          intro j
+          exact ih (f j).1 (f j).2 (lt_trans (f j).2 hi)
+      have hsup :
+          (Finset.sup (Finset.univ : Finset (Fin _)) fun j : Fin _ =>
+                d₁.depthAt (f j).1 (lt_trans (f j).2 hi1)) =
+            (Finset.sup (Finset.univ : Finset (Fin _)) fun j : Fin _ =>
+                d₀.depthAt (f j).1 (lt_trans (f j).2 hi)) := by
+        -- rewrite pointwise under the `sup`
+        refine Finset.sup_congr rfl ?_
+        intro j hj
+        exact hchild j
+      simp [hnode, hnd, hsup, -depthAt_def]
+
+theorem depthAt_snoc_of_lt (d : CircuitDAG G n) (nd : CircuitNode G n d.N) (i : Nat)
+    (hi : i < d.N) : (d.snoc nd).depthAt i (lt_trans hi (Nat.lt_succ_self _)) = d.depthAt i hi := by
+  simpa using
+    (depthAt_eq_of_prefix (d₀ := d) (d₁ := d.snoc nd) (h := Prefix.snoc (d := d) (nd := nd))
+      (i := i) (hi := hi))
+
+theorem depthAt_snoc_last (d : CircuitDAG G n) (nd : CircuitNode G n d.N) :
+    (d.snoc nd).depthAt d.N (Nat.lt_succ_self _) =
+      match nd with
+      | .input _ => 0
+      | .const _ => 0
+      | .gate (k := k) _ f =>
+          (Finset.sup (Finset.univ : Finset (Fin k)) fun j : Fin k => d.depthAt (f j).1 (f j).2) +
+            1 := by
+  classical
+  have hnode : (d.snoc nd).node d.N (Nat.lt_succ_self _) = nd := by
+    simp [snoc_node_last]
+  rw [depthAt_eq_node (d := d.snoc nd) (hi := Nat.lt_succ_self _)]
+  -- reduce using `snoc_node_last` and transport earlier depths back to `d`
+  cases nd with
+  | input i =>
+      simp [hnode]
+  | const b =>
+      simp [hnode]
+  | gate g f =>
+      -- For each child, the node is in the prefix `d`, so depth is unchanged by snoc.
+      have hchild : (j : Fin _) →
+          (d.snoc (CircuitNode.gate g f)).depthAt (f j).1
+            (lt_trans (f j).2 (Nat.lt_succ_self _)) = d.depthAt (f j).1 (f j).2 := by
+        intro j
+        simpa using
+          (depthAt_snoc_of_lt (d := d) (nd := CircuitNode.gate g f) (i := (f j).1) (hi := (f j).2))
+      have hsup :
+          (Finset.sup (Finset.univ : Finset (Fin _)) fun j : Fin _ =>
+                (d.snoc (CircuitNode.gate g f)).depthAt (f j).1
+                  (lt_trans (f j).2 (Nat.lt_succ_self _))) =
+            (Finset.sup (Finset.univ : Finset (Fin _)) fun j : Fin _ =>
+                d.depthAt (f j).1 (f j).2) := by
+        refine Finset.sup_congr rfl ?_
+        intro j hj
+        exact hchild j
+      simp [hnode, hsup, -depthAt_def]
+
+end CircuitDAG
+
+namespace Circuit
+
+/-- The depth of a circuit is the depth of its designated output node. -/
+def depth (c : Circuit G n) : Nat :=
+  c.toCircuitDAG.depthAt c.out.1 c.out.2
+
+@[simp] theorem depth_def (c : Circuit G n) :
+    c.depth = c.toCircuitDAG.depthAt c.out.1 c.out.2 :=
   rfl
-
-@[simp] theorem depth_const (b : Bool) : depth (const (G := G) (n := n) b) = 0 :=
-  rfl
-
-theorem size_mapInputs {m n : Nat} (c : Circuit G n) (ρ : Fin n → Fin m) :
-    size (mapInputs (G := G) c ρ) = size c := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g f ih =>
-      simp [size, mapInputs, ih]
-
-theorem depth_mapInputs {m n : Nat} (c : Circuit G n) (ρ : Fin n → Fin m) :
-    depth (mapInputs (G := G) c ρ) = depth c := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g f ih =>
-      simp [depth, mapInputs, ih]
-
-theorem size_mapGate {G H : Nat → Type} (φ : GateHom G H) {n : Nat} (c : Circuit G n) :
-    size (mapGate (G := G) (n := n) φ c) = size c := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g f ih =>
-      simp [size, mapGate, ih]
-
-theorem depth_mapGate {G H : Nat → Type} (φ : GateHom G H) {n : Nat} (c : Circuit G n) :
-    depth (mapGate (G := G) (n := n) φ c) = depth c := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g f ih =>
-      simp [depth, mapGate, ih]
 
 end Circuit
 

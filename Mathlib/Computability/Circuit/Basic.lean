@@ -5,208 +5,440 @@ Authors: Dennj Osele
 -/
 module
 
-public import Mathlib.Computability.Circuit.Gate
+public import Mathlib.Computability.Gate
+public import Mathlib.Data.Fin.Tuple.Basic
+public import Mathlib.Data.Finset.Lattice.Fold
 
 /-!
-# Circuits (syntax trees)
+# Boolean circuits (DAGs with explicit sharing)
 
-This file defines a basic notion of Boolean circuits as *syntax trees* over an abstract gate family
-`G : Nat → Type` equipped with semantics `[GateEval G]`.
+This file defines Boolean circuits as *topologically indexed* DAGs.
 
-The representation deliberately does not include explicit sharing (DAG circuits). It is intended as
-a minimal foundation for later definitions (size/depth measures, families, and non-uniform classes).
+In circuit complexity, a **circuit** is a DAG where gates can have arbitrary fan-out (sharing).
+This contrasts with **formulas** (see `Formula` in `Basic.lean`) which are trees with fan-out 1.
+
+The key idea is to index nodes by natural numbers and require that a node at index `i` may only
+refer to predecessors `< i`. This gives acyclicity and enables evaluation by simple recursion over
+the prefix length. This representation is equivalent to a straight-line program.
 
 ## Main definitions
 
-* `Circuit G n`: Boolean circuit over gate family `G` with `n` input wires
-* `Circuit.eval`: evaluate a circuit on an input assignment
-* `Circuit.mapGate`: transform gate labels via a `GateHom`
-* `Circuit.mapInputs`: rename/reindex circuit inputs
-* `Circuit.subst`: substitute each input wire by a circuit
-
-## Main theorems
-
-* `Circuit.eval_mapGate`: evaluation commutes with gate mapping (given semantic compatibility)
-* `Circuit.eval_mapInputs`: evaluation commutes with input renaming
-* `Circuit.eval_subst`: evaluation commutes with substitution
-* `Circuit.mapGate_comp`, `Circuit.subst_comp`: composition laws
+* `CircuitNode G n i`: a node at index `i` (input, constant, or gate referencing earlier nodes)
+* `CircuitDAG G n`: the underlying DAG structure (nodes indexed 0 to N-1)
+* `Circuit G n`: a DAG circuit with a designated output node
 
 ## Tags
 
-circuit, Boolean, syntax tree, evaluation
+circuit, Boolean, DAG, sharing, straight-line program, circuit complexity
 -/
 
 @[expose] public section
 
 namespace Computability
 
-/-- A Boolean circuit over gate labels `G` with `n` input wires. -/
-inductive Circuit (G : Nat → Type) (n : Nat) : Type where
-  | input : Fin n → Circuit G n
-  | const : Bool → Circuit G n
-  | gate {k : Nat} : G k → (Fin k → Circuit G n) → Circuit G n
-
-namespace Circuit
+open Gate
 
 variable {G : Nat → Type} {n : Nat}
 
-/-- Map gate labels along a `GateHom`. -/
-def mapGate {H : Nat → Type} (φ : GateHom G H) : Circuit G n → Circuit H n
-  | input i => input i
-  | const b => const b
-  | gate g f => gate (φ.map g) (fun i => mapGate φ (f i))
+/-- A node at index `i` is either an input wire, a constant, or a gate whose children are indexed by
+`Fin i` (so they are strictly earlier). -/
+inductive CircuitNode (G : Nat → Type) (n : Nat) (i : Nat) : Type where
+  | input : Fin n → CircuitNode G n i
+  | const : Bool → CircuitNode G n i
+  | gate : {k : Nat} → G k → (Fin k → Fin i) → CircuitNode G n i
 
-@[simp] theorem mapGate_input {H : Nat → Type} (φ : GateHom G H) (i : Fin n) :
-    mapGate φ (input i) = input i :=
+namespace CircuitNode
+
+variable {i : Nat}
+
+@[simp] theorem gate_mk {k : Nat} (g : G k) (f : Fin k → Fin i) :
+    CircuitNode.gate (G := G) (n := n) (i := i) g f = .gate g f :=
   rfl
 
-@[simp] theorem mapGate_const {H : Nat → Type} (φ : GateHom G H) (b : Bool) :
-    mapGate φ (const (n := n) b) = const b :=
+end CircuitNode
+
+/-- A circuit DAG is given by a number of nodes `N` and an assignment of a node-description to each
+index `i < N`. -/
+structure CircuitDAG (G : Nat → Type) (n : Nat) : Type where
+  /-- Number of nodes. -/
+  N : Nat
+  /-- Node-description at each index `i < N`. -/
+  node : ∀ i : Nat, i < N → CircuitNode G n i
+
+namespace CircuitDAG
+
+/-- The empty DAG (with no nodes). -/
+def empty (G : Nat → Type) (n : Nat) : CircuitDAG G n :=
+  ⟨0, fun i hi => (Nat.not_lt_zero i hi).elim⟩
+
+instance : Inhabited (CircuitDAG G n) :=
+  ⟨empty G n⟩
+
+/-- Append a new node at the end (at index `d.N`). -/
+def snoc (d : CircuitDAG G n) (nd : CircuitNode G n d.N) : CircuitDAG G n :=
+  ⟨d.N + 1, fun i hi =>
+    by
+      by_cases h : i < d.N
+      · exact d.node i h
+      · have : i = d.N := Nat.eq_of_lt_succ_of_not_lt hi h
+        subst this
+        exact nd⟩
+
+@[simp] theorem snoc_N (d : CircuitDAG G n) (nd : CircuitNode G n d.N) : (snoc d nd).N = d.N + 1 :=
   rfl
 
-@[simp] theorem mapGate_gate {H : Nat → Type} (φ : GateHom G H) {k : Nat} (g : G k)
-    (f : Fin k → Circuit G n) :
-    mapGate φ (gate g f) = gate (φ.map g) (fun i => mapGate φ (f i)) :=
+@[simp] theorem snoc_node_lt (d : CircuitDAG G n) (nd : CircuitNode G n d.N) {i : Nat}
+    (hi : i < d.N) : (snoc d nd).node i (lt_trans hi (Nat.lt_succ_self _)) = d.node i hi := by
+  simp [snoc, hi]
+
+@[simp] theorem snoc_node_last (d : CircuitDAG G n) (nd : CircuitNode G n d.N) :
+    (snoc d nd).node d.N (Nat.lt_succ_self _) = nd := by
+  simp [snoc]
+
+/-- `d₀` is a prefix of `d₁` if `d₁` has at least as many nodes and agrees with `d₀` on all earlier
+nodes. -/
+structure Prefix (d₀ d₁ : CircuitDAG G n) : Prop where
+  le : d₀.N ≤ d₁.N
+  node_eq : ∀ i (hi : i < d₀.N), d₁.node i (lt_of_lt_of_le hi le) = d₀.node i hi
+
+namespace Prefix
+
+theorem refl (d : CircuitDAG G n) : Prefix d d :=
+  ⟨le_rfl, by intro i hi; rfl⟩
+
+theorem trans {d₀ d₁ d₂ : CircuitDAG G n} (h₀₁ : Prefix d₀ d₁) (h₁₂ : Prefix d₁ d₂) :
+    Prefix d₀ d₂ := by
+  refine ⟨le_trans h₀₁.le h₁₂.le, ?_⟩
+  intro i hi
+  simpa [h₀₁.node_eq i hi] using
+    (h₁₂.node_eq i (lt_of_lt_of_le hi h₀₁.le))
+
+theorem snoc (d : CircuitDAG G n) (nd : CircuitNode G n d.N) : Prefix d (CircuitDAG.snoc d nd) := by
+  refine ⟨Nat.le_succ _, ?_⟩
+  intro i hi
+  simpa using (snoc_node_lt (d := d) (nd := nd) (hi := hi))
+
+end Prefix
+
+/-- Rename inputs of a circuit DAG by applying `ρ` to input references. -/
+def mapInputs {m : Nat} (d : CircuitDAG G n) (ρ : Fin n → Fin m) : CircuitDAG G m :=
+  { N := d.N
+    node := fun i hi =>
+      match d.node i hi with
+      | .input j => .input (ρ j)
+      | .const b => .const b
+      | .gate g f => .gate g f }
+
+/-- Relabel gates of a circuit DAG using an arity-preserving map. -/
+def mapGate {H : Nat → Type} (φ : GateHom G H) (d : CircuitDAG G n) : CircuitDAG H n :=
+  { N := d.N
+    node := fun i hi =>
+      match d.node i hi with
+      | .input j => .input j
+      | .const b => .const b
+      | .gate g f => .gate (φ.map g) f }
+
+@[simp] theorem mapInputs_N {m : Nat} (d : CircuitDAG G n) (ρ : Fin n → Fin m) :
+    (d.mapInputs ρ).N = d.N :=
   rfl
+
+@[simp] theorem mapGate_N {H : Nat → Type} (φ : GateHom G H) (d : CircuitDAG G n) :
+    (d.mapGate φ).N = d.N :=
+  rfl
+
+section Eval
+
+variable [GateEval G]
+
+/-- Evaluate the first `m` nodes of a circuit DAG, producing a vector of Boolean values
+of length `m`. -/
+def evalVec (d : CircuitDAG G n) (x : Fin n → Bool) : (m : Nat) → (hm : m ≤ d.N) → Fin m → Bool
+  | 0, _ => Fin.elim0
+  | m + 1, hm =>
+      let vals := evalVec d x m (le_trans (Nat.le_succ m) hm)
+      let nd := d.node m (lt_of_lt_of_le (Nat.lt_succ_self m) hm)
+      let v : Bool :=
+        match nd with
+        | .input i => x i
+        | .const b => b
+        | .gate g f => GateEval.eval g fun j => vals (f j)
+      Fin.snoc vals v
+
+@[simp] theorem evalVec_zero (d : CircuitDAG G n) (x : Fin n → Bool) (hm : 0 ≤ d.N) :
+    d.evalVec x 0 hm = Fin.elim0 := by
+  rfl
+
+/-- Proof-irrelevance for the `m ≤ N` argument of `evalVec`. -/
+theorem evalVec_congr_hm (d : CircuitDAG G n) (x : Fin n → Bool) (m : Nat) {hm₁ hm₂ : m ≤ d.N} :
+    d.evalVec x m hm₁ = d.evalVec x m hm₂ := by
+  cases Subsingleton.elim hm₁ hm₂
+  rfl
+
+/-- Increasing the prefix length of `evalVec` does not change earlier entries. -/
+theorem evalVec_castLE (d : CircuitDAG G n) (x : Fin n → Bool) (m : Nat) (hm : m ≤ d.N) :
+    ∀ m' (hm' : m' ≤ d.N) (hmm' : m ≤ m') (i : Fin m),
+      d.evalVec x m' hm' (Fin.castLE hmm' i) = d.evalVec x m hm i := by
+  intro m' hm' hmm' i
+  obtain ⟨t, rfl⟩ := Nat.exists_eq_add_of_le hmm'
+  have aux :
+      ∀ t (hm_t : m + t ≤ d.N),
+        d.evalVec x (m + t) hm_t (Fin.castAdd t i) = d.evalVec x m hm i := by
+    intro t hm_t
+    induction t with
+    | zero =>
+        simp [evalVec_congr_hm (d := d) (x := x) (m := m) (hm₁ := hm_t) (hm₂ := hm)]
+    | succ t ih =>
+        have hm_succ : m + t + 1 ≤ d.N := by
+          simpa [Nat.add_assoc] using hm_t
+        have hm_prev : m + t ≤ d.N :=
+          le_trans (Nat.le_succ (m + t)) hm_succ
+        have hcastSucc :
+            (Fin.castAdd (t + 1) i : Fin (m + t + 1)) =
+              Fin.castSucc (Fin.castAdd t i) := by
+          simpa using (Fin.castSucc_castAdd (m := t) (i := i)).symm
+        calc
+          d.evalVec x (m + t + 1) hm_succ (Fin.castAdd (t + 1) i)
+              = d.evalVec x (m + t + 1) hm_succ (Fin.castSucc (Fin.castAdd t i)) := by
+                simp [hcastSucc]
+          _ = d.evalVec x (m + t) hm_prev (Fin.castAdd t i) := by
+                simp [evalVec]
+          _ = d.evalVec x m hm i := ih hm_prev
+  have hcast : (Fin.castLE hmm' i : Fin (m + t)) = Fin.castAdd t i := by
+    ext
+    rfl
+  simpa [hcast] using aux t hm'
+
+/-- Evaluate a node at index `i`. -/
+def evalAt (d : CircuitDAG G n) (x : Fin n → Bool) (i : Nat) (hi : i < d.N) : Bool :=
+  d.evalVec x d.N le_rfl ⟨i, hi⟩
+
+/-- Unfold `evalAt` at a node by looking at the node label. -/
+theorem evalAt_eq_node (d : CircuitDAG G n) (x : Fin n → Bool) {i : Nat} (hi : i < d.N) :
+    d.evalAt x i hi =
+      match d.node i hi with
+      | .input j => x j
+      | .const b => b
+      | .gate g f =>
+          GateEval.eval g fun j =>
+            d.evalAt x (f j).1 (lt_trans (f j).2 hi) := by
+  -- Reduce to evaluation at prefix length `i+1`.
+  have hm : i + 1 ≤ d.N := Nat.succ_le_of_lt hi
+  have hcast : (Fin.castLE hm (Fin.last i) : Fin d.N) = ⟨i, hi⟩ := by
+    ext
+    rfl
+  have heq :
+      d.evalVec x d.N le_rfl ⟨i, hi⟩ = d.evalVec x (i + 1) hm (Fin.last i) := by
+    calc
+      d.evalVec x d.N le_rfl ⟨i, hi⟩
+          = d.evalVec x d.N le_rfl (Fin.castLE hm (Fin.last i)) := by
+              simp [hcast]
+      _ = d.evalVec x (i + 1) hm (Fin.last i) := by
+          simpa using (d.evalVec_castLE (x := x) (m := i + 1) (hm := hm) d.N le_rfl hm (Fin.last i))
+  -- Unfold one step of `evalVec` at length `i+1`. The `node` proof is propositionally irrelevant.
+  have hi0 : i < d.N := lt_of_lt_of_le (Nat.lt_succ_self i) hm
+  have hi0_eq : hi0 = hi := Subsingleton.elim _ _
+  cases hi0_eq
+  -- Replace child values `vals (f j)` by `evalAt` of the corresponding earlier node.
+  cases hnd : d.node i hi with
+  | input j =>
+      simpa [evalAt, evalVec, hnd] using heq
+  | const b =>
+      simpa [evalAt, evalVec, hnd] using heq
+  | gate g f =>
+      have hchild :
+          (j : Fin _) → d.evalVec x i (le_trans (Nat.le_succ i) hm) (f j) =
+            d.evalAt x (f j).1 (lt_trans (f j).2 hi) := by
+        intro j
+        have hm0 : i ≤ d.N := le_trans (Nat.le_succ i) hm
+        have hcast0 :
+            (Fin.castLE hm0 (f j) : Fin d.N) = ⟨(f j).1, lt_trans (f j).2 hi⟩ := by
+          ext
+          rfl
+        have :=
+          d.evalVec_castLE (x := x) (m := i) (hm := hm0) d.N le_rfl hm0 (f j)
+        -- `evalAt` is evaluation at full length `N`, so cast down to length `i`.
+        simpa [evalAt, hcast0] using this.symm
+      simpa [evalAt, evalVec, hnd, hchild] using heq
+
+theorem evalAt_mapInputs {m : Nat} (d : CircuitDAG G n) (ρ : Fin n → Fin m) (x : Fin m → Bool)
+    (i : Nat) (hi : i < d.N) :
+    (d.mapInputs ρ).evalAt x i hi = d.evalAt (fun j => x (ρ j)) i hi := by
+  revert hi
+  refine Nat.strong_induction_on i ?_
+  intro i ih hi
+  have hi' : i < (d.mapInputs ρ).N := by
+    simpa using hi
+  -- unfold `evalAt` on both sides by the node label of `d` at `i`
+  cases hnd : d.node i hi with
+  | input j =>
+      rw [evalAt_eq_node (d := d.mapInputs ρ) (x := x) (hi := hi')]
+      rw [evalAt_eq_node (d := d) (x := fun t => x (ρ t)) (hi := hi)]
+      simp [CircuitDAG.mapInputs, hnd]
+  | const b =>
+      rw [evalAt_eq_node (d := d.mapInputs ρ) (x := x) (hi := hi')]
+      rw [evalAt_eq_node (d := d) (x := fun t => x (ρ t)) (hi := hi)]
+      simp [CircuitDAG.mapInputs, hnd]
+  | gate g f =>
+      rw [evalAt_eq_node (d := d.mapInputs ρ) (x := x) (hi := hi')]
+      rw [evalAt_eq_node (d := d) (x := fun t => x (ρ t)) (hi := hi)]
+      have hnode : (d.mapInputs ρ).node i hi' = CircuitNode.gate g f := by
+        simp [CircuitDAG.mapInputs, hnd]
+      have hchild :
+          (j : Fin _) →
+            (d.mapInputs ρ).evalAt x (f j).1 (lt_trans (f j).2 hi') =
+              d.evalAt (fun t => x (ρ t)) (f j).1 (lt_trans (f j).2 hi) := by
+        intro j
+        exact (ih (f j).1 (f j).2) (lt_trans (f j).2 hi)
+      have hfun :
+          (fun j => (d.mapInputs ρ).evalAt x (f j).1 (lt_trans (f j).2 hi')) =
+            fun j => d.evalAt (fun t => x (ρ t)) (f j).1 (lt_trans (f j).2 hi) := by
+        funext j
+        exact hchild j
+      -- reduce the node labels, then rewrite the child-evaluation function
+      simp [hnode, hnd, hfun]
+
+/-- If `d₀` is a prefix of `d₁`, then evaluation on any prefix length `m ≤ d₀.N` agrees. -/
+theorem evalVec_eq_of_prefix {d₀ d₁ : CircuitDAG G n} (h : Prefix (G := G) (n := n) d₀ d₁)
+    (x : Fin n → Bool) :
+    ∀ m (hm : m ≤ d₀.N), d₁.evalVec x m (le_trans hm h.le) = d₀.evalVec x m hm := by
+  intro m hm
+  induction m with
+  | zero =>
+      -- both sides are `Fin.elim0`
+      rfl
+  | succ m ih =>
+      have hm0 : m ≤ d₀.N := le_trans (Nat.le_succ m) hm
+      have hm1 : m ≤ d₁.N := le_trans hm0 h.le
+      have hm1s : m + 1 ≤ d₁.N := le_trans hm h.le
+      have hrec : d₁.evalVec x m hm1 = d₀.evalVec x m hm0 :=
+        ih (hm := hm0)
+      -- The recursive call inside `evalVec` uses `le_trans (Nat.le_succ m) hm1s`, which is
+      -- propositionally equal to `hm1`.
+      have hrec1 :
+          d₁.evalVec x m (le_trans (Nat.le_succ m) hm1s) = d₁.evalVec x m hm1 :=
+        evalVec_congr_hm (d := d₁) (x := x) (m := m)
+          (hm₁ := le_trans (Nat.le_succ m) hm1s) (hm₂ := hm1)
+      funext i
+      induction i using Fin.lastCases with
+      | cast j =>
+          -- `Fin.snoc` agrees with the prefix on `castSucc`
+          have hcast₁ :
+              (d₁.evalVec x (m + 1) hm1s) (Fin.castSucc j) = (d₁.evalVec x m hm1) j := by
+            simp [evalVec, hrec1]
+          have hcast₀ :
+              (d₀.evalVec x (m + 1) hm) (Fin.castSucc j) = (d₀.evalVec x m hm0) j := by
+            simp [evalVec]
+          -- reduce to the induction hypothesis at length `m`
+          simpa [hcast₀, hcast₁] using congrArg (fun f => f j) hrec
+      | last =>
+          have hn0 : m < d₀.N := lt_of_lt_of_le (Nat.lt_succ_self m) hm
+          have hn1' : m < d₁.N := lt_of_lt_of_le hn0 h.le
+          have hn1_def : m < d₁.N := lt_of_lt_of_le (Nat.lt_succ_self m) hm1s
+          have hproof : hn1_def = hn1' := Subsingleton.elim _ _
+          have hnode : d₁.node m hn1_def = d₀.node m hn0 := by
+            subst hproof
+            simpa using h.node_eq m hn0
+          -- `Fin.snoc` at `last` yields the freshly computed value.
+          simp [evalVec, hrec1, hnode, hrec]
+
+/-- If `d₀` is a prefix of `d₁`, then evaluation of earlier nodes agrees. -/
+theorem evalAt_eq_of_prefix {d₀ d₁ : CircuitDAG G n} (h : Prefix (G := G) (n := n) d₀ d₁)
+    (x : Fin n → Bool) {i : Nat} (hi : i < d₀.N) :
+    d₁.evalAt x i (lt_of_lt_of_le hi h.le) = d₀.evalAt x i hi := by
+  set j : Fin d₀.N := ⟨i, hi⟩
+  have hj : (Fin.castLE h.le j : Fin d₁.N) = ⟨i, lt_of_lt_of_le hi h.le⟩ := by
+    ext
+    rfl
+  unfold evalAt
+  -- first, reduce evaluation in `d₁` at length `d₁.N` to evaluation at length `d₀.N`
+  have hlen :
+      d₁.evalVec x d₁.N le_rfl (Fin.castLE h.le j) = d₁.evalVec x d₀.N h.le j := by
+    simpa using (evalVec_castLE (d := d₁) (x := x) (m := d₀.N) (hm := h.le)
+      d₁.N le_rfl h.le j)
+  -- then use prefix-equality of `evalVec` at length `d₀.N`
+  have hvec : d₁.evalVec x d₀.N h.le j = d₀.evalVec x d₀.N le_rfl j := by
+    have hvec' := evalVec_eq_of_prefix (d₀ := d₀) (d₁ := d₁) (h := h) (x := x) d₀.N le_rfl
+    simpa using congrArg (fun f => f j) hvec'
+  simpa [hj] using hlen.trans hvec
+
+/-- Appending a node does not change the values of earlier nodes. -/
+theorem evalAt_snoc_of_lt (d : CircuitDAG G n) (nd : CircuitNode G n d.N) (x : Fin n → Bool)
+    {i : Nat} (hi : i < d.N) :
+    (snoc d nd).evalAt x i (lt_trans hi (Nat.lt_succ_self _)) = d.evalAt x i hi := by
+  have hsnoc : Prefix (G := G) (n := n) d (snoc d nd) := Prefix.snoc (d := d) (nd := nd)
+  simpa using
+    (evalAt_eq_of_prefix (d₀ := d) (d₁ := snoc d nd) (h := hsnoc) (x := x) (i := i) (hi := hi))
+
+/-- The value of the newly appended node. -/
+theorem evalAt_snoc_last (d : CircuitDAG G n) (nd : CircuitNode G n d.N) (x : Fin n → Bool) :
+    (snoc d nd).evalAt x d.N (Nat.lt_succ_self _) =
+      match nd with
+      | .input i => x i
+      | .const b => b
+      | .gate g f => GateEval.eval g fun j => d.evalAt x (f j).1 (f j).2 := by
+  have hlast : (⟨d.N, Nat.lt_succ_self _⟩ : Fin (d.N + 1)) = Fin.last d.N := rfl
+  cases nd with
+  | input i =>
+      unfold evalAt
+      simpa [hlast] using (by simp [evalVec, CircuitDAG.snoc_node_last])
+  | const b =>
+      unfold evalAt
+      simpa [hlast] using (by simp [evalVec, CircuitDAG.snoc_node_last])
+  | gate g f =>
+      have hprefix : Prefix (G := G) (n := n) d (snoc d (CircuitNode.gate g f)) :=
+        Prefix.snoc (d := d) (nd := CircuitNode.gate g f)
+      have hvals : (snoc d (CircuitNode.gate g f)).evalVec x d.N (Nat.le_succ d.N) =
+          d.evalVec x d.N le_rfl := by
+        have hvec := evalVec_eq_of_prefix
+          (d₀ := d) (d₁ := snoc d (CircuitNode.gate g f)) (h := hprefix) (x := x) d.N le_rfl
+        simpa using hvec
+      unfold evalAt
+      -- `Fin.snoc` at `last` yields the value computed for the new node.
+      simpa [hlast, evalAt] using (by simp [evalVec, CircuitDAG.snoc_node_last, hvals])
+
+end Eval
+
+end CircuitDAG
+
+/-- A Boolean circuit is a DAG together with a designated output node.
+
+In circuit complexity, circuits allow sharing (fan-out > 1), unlike formulas which are trees.
+The size of a circuit is the number of nodes (gates + inputs + constants). -/
+structure Circuit (G : Nat → Type) (n : Nat) : Type extends CircuitDAG G n where
+  /-- Output node. -/
+  out : Fin N
+
+namespace Circuit
+
+variable [GateEval G]
 
 /-- Evaluate a circuit on an input assignment. -/
-def eval [GateEval G] : Circuit G n → (Fin n → Bool) → Bool
-  | input i, x => x i
-  | const b, _ => b
-  | gate g f, x => GateEval.eval g fun i => eval (f i) x
+def eval (c : Circuit G n) (x : Fin n → Bool) : Bool :=
+  c.toCircuitDAG.evalAt x c.out.1 c.out.2
 
-@[simp] theorem eval_input [GateEval G] (i : Fin n) (x : Fin n → Bool) :
-    eval (input (G := G) i) x = x i :=
+@[simp] theorem eval_def (c : Circuit G n) (x : Fin n → Bool) :
+    c.eval x = c.toCircuitDAG.evalAt x c.out.1 c.out.2 :=
   rfl
 
-@[simp] theorem eval_const [GateEval G] (b : Bool) (x : Fin n → Bool) :
-    eval (const (G := G) (n := n) b) x = b :=
+/-- The size of a circuit is the number of nodes. -/
+def size (c : Circuit G n) : Nat :=
+  c.N
+
+/-- Rename inputs of a circuit by applying `ρ` to input references. -/
+def mapInputs {m : Nat} (c : Circuit G n) (ρ : Fin n → Fin m) : Circuit G m :=
+  { N := c.N
+    node := (c.toCircuitDAG.mapInputs ρ).node
+    out := c.out }
+
+omit [GateEval G] in
+@[simp] theorem mapInputs_size {m : Nat} (c : Circuit G n) (ρ : Fin n → Fin m) :
+    (c.mapInputs ρ).size = c.size :=
   rfl
 
-@[simp] theorem eval_gate [GateEval G] {k : Nat} (g : G k) (f : Fin k → Circuit G n)
-    (x : Fin n → Bool) :
-    eval (gate (G := G) (n := n) g f) x = GateEval.eval g (fun i => eval (f i) x) :=
-  rfl
-
-/-- Rename/reindex circuit inputs. -/
-def mapInputs {m n : Nat} (c : Circuit G n) (ρ : Fin n → Fin m) : Circuit G m :=
-  match c with
-  | input i => input (ρ i)
-  | const b => const b
-  | gate g f => gate g (fun i => mapInputs (f i) ρ)
-
-@[simp] theorem mapInputs_input {m n : Nat} (ρ : Fin n → Fin m) (i : Fin n) :
-    mapInputs (G := G) (input i) ρ = input (ρ i) :=
-  rfl
-
-@[simp] theorem mapInputs_const {m n : Nat} (ρ : Fin n → Fin m) (b : Bool) :
-    mapInputs (G := G) (const (n := n) b) ρ = const (n := m) b :=
-  rfl
-
-@[simp] theorem mapInputs_gate {m n k : Nat} (ρ : Fin n → Fin m) (g : G k)
-    (f : Fin k → Circuit G n) :
-    mapInputs (G := G) (gate (n := n) g f) ρ = gate (n := m) g (fun i => mapInputs (f i) ρ) :=
-  rfl
-
-/-- Substitute each input wire by a circuit. -/
-def subst {m n : Nat} (c : Circuit G n) (σ : Fin n → Circuit G m) : Circuit G m :=
-  match c with
-  | input i => σ i
-  | const b => const b
-  | gate g f => gate g (fun i => subst (f i) σ)
-
-@[simp] theorem subst_input {m n : Nat} (σ : Fin n → Circuit G m) (i : Fin n) :
-    subst (G := G) (input i) σ = σ i :=
-  rfl
-
-@[simp] theorem subst_const {m n : Nat} (σ : Fin n → Circuit G m) (b : Bool) :
-    subst (G := G) (const (n := n) b) σ = const (n := m) b :=
-  rfl
-
-@[simp] theorem subst_gate {m n k : Nat} (σ : Fin n → Circuit G m) (g : G k)
-    (f : Fin k → Circuit G n) :
-    subst (G := G) (gate (n := n) g f) σ = gate (n := m) g (fun i => subst (f i) σ) :=
-  rfl
-
-theorem eval_mapInputs [GateEval G] {m n : Nat} (c : Circuit G n) (ρ : Fin n → Fin m)
-    (x : Fin m → Bool) :
-    eval (mapInputs (G := G) c ρ) x = eval c (fun i => x (ρ i)) := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g f ih =>
-      simp [mapInputs, eval, ih]
-
-theorem eval_subst [GateEval G] {m n : Nat} (c : Circuit G n) (σ : Fin n → Circuit G m)
-    (x : Fin m → Bool) :
-    eval (subst (G := G) c σ) x = eval c (fun i => eval (σ i) x) := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g f ih =>
-      simp [subst, eval, ih]
-
-theorem eval_mapGate {H : Nat → Type} [GateEval G] [GateEval H] (φ : GateHom G H)
-    (hφ : ∀ {k : Nat} (g : G k) (x : Fin k → Bool), GateEval.eval (G := H) (φ.map g) x =
-      GateEval.eval (G := G) g x)
-    (c : Circuit G n) (x : Fin n → Bool) :
-    eval (mapGate φ c) x = eval c x := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g f ih =>
-      simp only [mapGate, eval, ih, hφ]
-
-@[simp]
-theorem mapInputs_id (c : Circuit G n) :
-    mapInputs c id = c := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g f ih =>
-      simp [mapInputs, ih]
-
-theorem mapInputs_comp {m ℓ n : Nat} (c : Circuit G n) (ρ₁ : Fin n → Fin m) (ρ₂ : Fin m → Fin ℓ) :
-    mapInputs (G := G) (mapInputs (G := G) c ρ₁) ρ₂ =
-      mapInputs (G := G) c (fun i => ρ₂ (ρ₁ i)) := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g f ih =>
-      simp [mapInputs, ih]
-
-theorem subst_id (c : Circuit G n) :
-    subst (G := G) c (fun i => input i) = c := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g f ih =>
-      simp [subst, ih]
-
-theorem subst_comp {m ℓ n : Nat} (c : Circuit G n) (σ₁ : Fin n → Circuit G m)
-    (σ₂ : Fin m → Circuit G ℓ) :
-    subst (G := G) (subst (G := G) c σ₁) σ₂ =
-      subst (G := G) c (fun i => subst (G := G) (σ₁ i) σ₂) := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g f ih =>
-      simp [subst, ih]
-
-@[simp]
-theorem mapGate_id {G : ℕ → Type} {n : Nat} (c : Circuit G n) :
-    mapGate (GateHom.id G) c = c := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g f ih => simp [ih]
-
-theorem mapGate_comp {H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) (c : Circuit G n) :
-    mapGate (GateHom.comp g f) c = mapGate g (mapGate f c) := by
-  induction c with
-  | input i => rfl
-  | const b => rfl
-  | gate g₀ f₀ ih => simp [ih]
+theorem eval_mapInputs {m : Nat} (c : Circuit G n) (ρ : Fin n → Fin m) (x : Fin m → Bool) :
+    (c.mapInputs ρ).eval x = c.eval (fun i => x (ρ i)) := by
+  simpa [Circuit.mapInputs, Circuit.eval] using CircuitDAG.evalAt_mapInputs
+    (d := c.toCircuitDAG) (ρ := ρ) (x := x) (i := c.out.1) (hi := c.out.2)
 
 end Circuit
 

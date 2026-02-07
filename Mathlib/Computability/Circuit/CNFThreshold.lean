@@ -6,7 +6,7 @@ Authors: Dennj Osele
 module
 
 public import Mathlib.Computability.Circuit.CNFGate
-public import Mathlib.Computability.Circuit.Gate
+public import Mathlib.Computability.Gate
 import Mathlib.Data.List.OfFn
 
 /-!
@@ -26,6 +26,8 @@ the correct output value, there is a canonical auxiliary assignment satisfying t
 @[expose] public section
 
 namespace Computability
+
+open Gate
 
 namespace Circuit
 

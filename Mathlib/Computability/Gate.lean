@@ -11,7 +11,7 @@ public import Mathlib.Data.Fin.Tuple.Basic
 public import Mathlib.Data.Finset.Card
 
 /-!
-# Circuit gate labels
+# Boolean gate labels
 
 This file defines a lightweight interface for *arity-indexed* gate labels and their Boolean
 semantics, together with standard bases used in circuit complexity (`AC0`, `ACC0`, `TC0`).
@@ -47,7 +47,7 @@ circuit, Boolean, gate, AC0, ACC0, TC0, complexity
 
 namespace Computability
 
-namespace Circuit
+namespace Gate
 
 /-- Semantics for an arity-indexed family of gate labels `G : Nat → Type`. -/
 class GateEval (G : Nat → Type) : Type where
@@ -268,6 +268,6 @@ def toTC0Gate : GateHom AC0Gate TC0Gate :=
 
 end AC0Gate
 
-end Circuit
+end Gate
 
 end Computability
