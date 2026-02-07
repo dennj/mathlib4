@@ -3383,11 +3383,12 @@ public import Mathlib.Computability.AkraBazzi.AkraBazzi
 public import Mathlib.Computability.AkraBazzi.GrowsPolynomially
 public import Mathlib.Computability.AkraBazzi.SumTransform
 public import Mathlib.Computability.Circuit.Basic
-public import Mathlib.Computability.Circuit.Gate
 public import Mathlib.Computability.ContextFreeGrammar
 public import Mathlib.Computability.DFA
 public import Mathlib.Computability.Encoding
 public import Mathlib.Computability.EpsilonNFA
+public import Mathlib.Computability.Formula.Basic
+public import Mathlib.Computability.Gate
 public import Mathlib.Computability.Halting
 public import Mathlib.Computability.Language
 public import Mathlib.Computability.MyhillNerode

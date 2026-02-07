@@ -11,7 +11,7 @@ public import Mathlib.Data.Fin.Tuple.Basic
 public import Mathlib.Data.Finset.Card
 
 /-!
-# Circuit gate labels
+# Boolean gate labels
 
 This file defines a lightweight interface for *arity-indexed* gate labels and their Boolean
 semantics, together with standard bases used in circuit complexity (`AC0`, `ACC0`, `TC0`).
@@ -47,7 +47,7 @@ circuit, Boolean, gate, AC0, ACC0, TC0, complexity
 
 namespace Computability
 
-namespace Circuit
+namespace Gate
 
 /-- Semantics for an arity-indexed family of gate labels `G : Nat → Type`. -/
 class GateEval (G : Nat → Type) : Type where
@@ -63,12 +63,10 @@ structure GateHom (G H : Nat → Type) : Type where
 namespace GateHom
 
 /-- Identity gate homomorphism. -/
-def id (G : Nat → Type) : GateHom G G :=
-  ⟨fun g => g⟩
+def id (G : Nat → Type) : GateHom G G := ⟨_root_.id⟩
 
 /-- Composition of gate homomorphisms. -/
-def comp {G H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) : GateHom G K :=
-  ⟨fun x => g.map (f.map x)⟩
+def comp {G H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) : GateHom G K := ⟨g.map ∘ f.map⟩
 
 @[simp] theorem map_id {G : Nat → Type} {n : Nat} (x : G n) : (id G).map x = x :=
   rfl
@@ -81,7 +79,7 @@ def comp {G H K : Nat → Type} (g : GateHom H K) (f : GateHom G H) : GateHom G 
 @[simp] theorem comp_id {G H : Nat → Type} (f : GateHom G H) : comp f (id G) = f :=
   rfl
 
-@[simp] theorem comp_id' {G H : Nat → Type} (f : GateHom G H) : comp (id H) f = f :=
+@[simp] theorem id_comp {G H : Nat → Type} (f : GateHom G H) : comp (id H) f = f :=
   rfl
 
 theorem comp_assoc {G H K L : Nat → Type} (h : GateHom K L) (g : GateHom H K) (f : GateHom G H) :
@@ -94,50 +92,15 @@ end GateHom
 def countTrue {n : Nat} (x : Fin n → Bool) : Nat :=
   (Finset.univ.filter fun i : Fin n => x i = true).card
 
-@[simp] theorem countTrue_def {n : Nat} (x : Fin n → Bool) :
-    countTrue x = (Finset.univ.filter fun i : Fin n => x i = true).card :=
-  rfl
-
 theorem countTrue_le {n : Nat} (x : Fin n → Bool) : countTrue x ≤ n :=
   card_finset_fin_le _
 
 theorem countTrue_snoc {n : Nat} (x : Fin n → Bool) (b : Bool) :
     countTrue (Fin.snoc x b) = countTrue x + (if b then 1 else 0) := by
-  classical
-  simp only [countTrue]
-  -- The key is to split Fin (n+1) into {i.castSucc | i : Fin n} ∪ {last n}
-  have himage : Finset.univ.filter (fun i : Fin (n + 1) =>
-        Fin.snoc (α := fun _ => Bool) x b i = true) =
-      (Finset.univ.filter (fun i : Fin n => x i = true)).image Fin.castSucc ∪
-        (if b then {Fin.last n} else ∅) := by
-    ext i
-    simp only [Finset.mem_filter, Finset.mem_univ, true_and, Finset.mem_union, Finset.mem_image]
-    cases i using Fin.lastCases with
-    | last =>
-      simp only [Fin.snoc_last]
-      constructor
-      · intro hb; simp [hb]
-      · intro h
-        rcases h with ⟨j, _, hj⟩ | h
-        · exact (Fin.castSucc_ne_last j hj).elim
-        · cases hb : b <;> simp_all
-    | cast j =>
-      simp only [Fin.snoc_castSucc]
-      constructor
-      · intro hxj
-        left; exact ⟨j, hxj, rfl⟩
-      · intro h
-        rcases h with ⟨k, hk, hkj⟩ | h
-        · have : k = j := Fin.castSucc_injective n hkj
-          rwa [← this]
-        · cases hb : b <;> simp_all [Fin.castSucc_ne_last]
-  have hdisj : Disjoint
-      ((Finset.univ.filter (fun i : Fin n => x i = true)).image Fin.castSucc)
-      (if b then {Fin.last n} else ∅) := by
-    cases b <;> simp [Finset.disjoint_singleton_right, Finset.mem_image, Fin.castSucc_ne_last]
-  rw [himage, Finset.card_union_of_disjoint hdisj,
-    Finset.card_image_of_injective _ (Fin.castSucc_injective n)]
-  cases b <;> simp
+  simp only [countTrue, Fin.univ_castSuccEmb, Finset.filter_cons, Fin.snoc_last,
+    Finset.filter_map]
+  simp only [Function.comp_def]
+  cases b <;> simp [Nat.add_comm]
 
 /-! ## Standard gate bases -/
 
@@ -241,12 +204,10 @@ instance : GateEval TC0Gate where
 namespace AC0Gate
 
 /-- The canonical injection of `AC0Gate` into `ACC0Gate m`. -/
-def toACC0Gate (m : Nat) : GateHom AC0Gate (ACC0Gate m) :=
-  ⟨fun g => ACC0Gate.ac0 g⟩
+def toACC0Gate (m : Nat) : GateHom AC0Gate (ACC0Gate m) := ⟨.ac0⟩
 
 /-- The canonical injection of `AC0Gate` into `TC0Gate`. -/
-def toTC0Gate : GateHom AC0Gate TC0Gate :=
-  ⟨fun g => TC0Gate.ac0 g⟩
+def toTC0Gate : GateHom AC0Gate TC0Gate := ⟨.ac0⟩
 
 @[simp] theorem toACC0Gate_map (m : Nat) {n : Nat} (g : AC0Gate n) :
     (toACC0Gate m).map g = ACC0Gate.ac0 (m := m) g :=
@@ -268,6 +229,6 @@ def toTC0Gate : GateHom AC0Gate TC0Gate :=
 
 end AC0Gate
 
-end Circuit
+end Gate
 
 end Computability
